@@ -140,7 +140,16 @@ export default function Upload() {
         next[f.fileIndex] = f.row
       }
     }
+    console.log('Highlighting rows:', next, 'files:', n.files)
     setHighlightMap(next)
+    // Force scroll after state update
+    setTimeout(() => {
+      next.forEach((row, fi) => {
+        if (row >= 0 && rowRefs.current?.[fi]?.[row]) {
+          rowRefs.current[fi][row]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
+      })
+    }, 100)
   }
 
   const escapeHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -281,35 +290,25 @@ export default function Upload() {
                           />
                         )
                       ) : (
-                        result.inputs.kinds?.[i] === 'xlsx' && editedHtmls[i] && editedHtmls[i].includes('<table') ? (
-                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto' }}>
-                            <div dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }} style={{ fontSize: 12 }} />
-                          </Paper>
-                        ) : result.inputs.kinds?.[i] === 'docx' && editedHtmls[i] && editedHtmls[i].includes('<') ? (
-                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto', fontSize: 14, lineHeight: 1.6 }}>
-                            <div dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }} />
-                          </Paper>
-                        ) : (
-                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
-                            {rows.map((line, ri) => (
-                              <div
-                                key={ri}
-                                ref={(el) => {
-                                  if (!rowRefs.current[i]) rowRefs.current[i] = []
-                                  rowRefs.current[i][ri] = el
-                                }}
-                                style={{
-                                  backgroundColor: highlightMap[i] === ri ? '#fff59d' : 'transparent',
-                                  padding: '2px 4px',
-                                  borderRadius: 4
-                                }}
-                              >
-                                <span style={{ color: '#888' }}>{ri.toString().padStart(3, '0')}: </span>
-                                {line}
-                              </div>
-                            ))}
-                          </Paper>
-                        )
+                        <Paper variant="outlined" sx={{ p: 1, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+                          {rows.map((line, ri) => (
+                            <div
+                              key={ri}
+                              ref={(el) => {
+                                if (!rowRefs.current[i]) rowRefs.current[i] = []
+                                rowRefs.current[i][ri] = el
+                              }}
+                              style={{
+                                backgroundColor: highlightMap[i] === ri ? '#fff59d' : 'transparent',
+                                padding: '2px 4px',
+                                borderRadius: 4
+                              }}
+                            >
+                              <span style={{ color: '#888' }}>{ri.toString().padStart(3, '0')}: </span>
+                              {line}
+                            </div>
+                          ))}
+                        </Paper>
                       )}
                     </Stack>
                   </Paper>

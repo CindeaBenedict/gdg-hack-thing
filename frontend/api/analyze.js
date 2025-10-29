@@ -165,11 +165,25 @@ export default async function handler(req, res) {
           for (const idx of groups[i].indices) minorityIndices.add(idx)
         }
         
-        // Assign probabilities: minority = high (0.8-0.95), majority = low (0.1-0.3)
+        // Check if it's a tie (all groups same size)
+        const isTie = groups.length > 1 && groups.every(g => g.indices.length === groups[0].indices.length)
+        
+        // Assign probabilities:
+        // High probability = suspect/likely wrong → RED
+        // Low probability = likely correct → YELLOW
+        // Medium probability = uncertain → GREEN
         for (let i = 0; i < allIndices.length; i++) {
           const fileIdx = allIndices[i]
-          const isMinority = minorityIndices.has(fileIdx)
-          const prob = isMinority ? 0.85 : 0.25
+          let prob
+          if (isTie) {
+            // Tie = uncertain which is correct
+            prob = 0.5
+          } else {
+            const isMajority = majorityGroup.indices.includes(fileIdx)
+            // MAJORITY (2 files agree) = LOW suspect probability (0.25) → YELLOW "Correct"
+            // MINORITY (1 file differs) = HIGH suspect probability (0.85) → RED "Wrong"
+            prob = isMajority ? 0.25 : 0.85
+          }
           suspects.push({ fileIndex: fileIdx, probability: prob })
         }
       }
