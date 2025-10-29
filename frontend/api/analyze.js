@@ -293,11 +293,56 @@ async function watsonxCheck(a, b) {
   const model = process.env.WML_MODEL_ID || 'ibm/granite-3-2-8b-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
-  const prompt = `You are an AI consistency auditor. Compare multiple multilingual or multi-format documents for factual consistency.\nDetect mismatches in numbers, dates, monetary amounts, or entities. If most versions agree and one differs, mark it as suspect.\nOutput only a valid JSON object using this schema:{\"status\":\"MATCH|MISMATCH|REVIEW\",\"confidence\":0.0-1.0,\"issues\":[{\"type\":\"number|date|monetary|entity\",\"comment\":\"brief reason\"}]}\nInput: EN: ${a}\nDE: ${b}\n\nOutput:`
+  const prompt = `You are an AI document consistency checker and confidence estimator.
+
+Analyze the provided multilingual or multi-format segments ONLY. Do NOT use any previous data or memory.
+
+Your goals:
+1. Identify factual inconsistencies across document versions.
+2. Compute a probabilistic confidence score (0.0–1.0) for each mismatch, based on:
+   • Value similarity (numeric or lexical closeness)
+   • Entity alignment confidence (same clause or row?)
+   • Repetition strength across documents
+   • Structural alignment between rows
+3. Return probabilities that reflect **relative certainty of inconsistency**, not random scores.
+
+Consider:
+- A mismatch repeated across several rows = higher confidence (≈ 0.8 – 1.0).
+- Slight numeric difference or weak alignment = medium confidence (≈ 0.5 – 0.7).
+- Ambiguous or unaligned = low confidence (< 0.5).
+
+Output exactly ONE valid JSON. No text outside JSON.
+
+Strict schema:
+{
+  "status": "MATCH|MISMATCH|REVIEW",
+  "confidence": 0.00–1.00,
+  "issues": [
+    {
+      "type": "number|monetary|date|entity|semantic",
+      "values": {"lang1": "...", "lang2": "..."},
+      "suspect_probability": 0.60,
+      "reasoning": "Explain which language likely contains the inconsistent value.",
+      "comment": "Brief summary of the inconsistency"
+    }
+  ]
+}
+
+Rules:
+- Output NOTHING outside JSON.
+- All probabilities between 0.00 and 1.00.
+- If all values identical → MATCH.
+- Never output static or repeated probabilities (each row must differ if context differs).
+- End generation immediately after the final }.
+
+Input A: ${a}
+Input B: ${b}
+
+Output:`
   const r = await fetch(`${base}/ml/v1/text/generation?version=2023-05-29`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ input: prompt, parameters: { decoding_method: 'greedy', max_new_tokens: 200, min_new_tokens: 0, repetition_penalty: 1 }, model_id: model, project_id: project })
+    body: JSON.stringify({ input: prompt, parameters: { decoding_method: 'greedy', max_new_tokens: 300, min_new_tokens: 0, repetition_penalty: 1 }, model_id: model, project_id: project })
   })
   if (!r.ok) return { status: 'REVIEW', confidence: 0, issues: [] }
   const out = await r.json()

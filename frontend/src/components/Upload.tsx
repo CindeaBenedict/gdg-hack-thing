@@ -244,21 +244,21 @@ export default function Upload() {
                         <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => downloadFile(i)}>Download</Button>
                       </Stack>
                       {editable[i] ? (
-                        result.inputs.kinds?.[i] === 'docx' ? (
-                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 300, overflow: 'auto', fontSize: 14 }}>
+                        result.inputs.kinds?.[i] === 'docx' && editedHtmls[i] && editedHtmls[i].includes('<') ? (
+                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto' }}>
                             <div
                               contentEditable
                               suppressContentEditableWarning
                               onInput={(e) => onHtmlChange(i, (e.target as HTMLDivElement).innerHTML)}
                               dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }}
-                              style={{ minHeight: 200 }}
+                              style={{ minHeight: 200, fontSize: 14, lineHeight: 1.6 }}
                             />
                           </Paper>
                         ) : (
                           <textarea
                             value={editedTexts[i] || ''}
                             onChange={(e) => onTextChange(i, e.target.value)}
-                            style={{ width: '100%', height: 300, fontFamily: 'monospace', fontSize: 12 }}
+                            style={{ width: '100%', height: 300, fontFamily: 'monospace', fontSize: 12, padding: '8px' }}
                           />
                         )
                       ) : (
@@ -297,40 +297,58 @@ export default function Upload() {
           {notes.length > 0 && (
             <Box>
               <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle1" gutterBottom>Findings</Typography>
-              <Stack spacing={1}>
-                {notes.map(n => (
-                  <Accordion key={n.index} onChange={() => goToFinding(n)}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography sx={{ fontWeight: 600, mr: 2 }}>Row {n.index}</Typography>
-                      <Typography>{n.message}</Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Stack spacing={0.5}>
-                        {(n.files || []).map((f: any) => (
-                          <div key={f.fileIndex}><b>{f.fileName || 'File ' + f.fileIndex}</b> row {f.row}: {f.text}</div>
-                        ))}
-                        {(n.issues || []).map((iss: any, ix: number) => (
-                          <div key={ix}>
-                            <b>Issue:</b> {iss.type} — {iss.comment}
-                            {iss.values && (
-                              <div>
-                                {Object.keys(iss.values).map((lang) => (
-                                  <div key={lang}>{lang}: {iss.values[lang]}</div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {(n.suspects || []).length > 0 && (
-                          <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => s.fileIndex + ': ' + Math.round((s.probability || 0)*100) + '%').join(', ')}</div>
-                        )}
-                        <div style={{ fontSize: 12, color: '#666' }}>(Click a finding to highlight in documents)</div>
-                      </Stack>
-                    </AccordionDetails>
-                  </Accordion>
-                ))}
-              </Stack>
+              <Typography variant="subtitle1" gutterBottom>Findings ({notes.length} issues)</Typography>
+              <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
+                <Stack spacing={0}>
+                  {notes.map((n, idx) => {
+                    const status = (n.issues?.[0]?.reasoning || '').toLowerCase().includes('review') ? 'review' : 'mismatch'
+                    const bgColor = status === 'review' ? '#e8f5e9' : '#fff3e0'
+                    return (
+                      <Box
+                        key={n.index}
+                        onClick={() => goToFinding(n)}
+                        sx={{
+                          p: 2,
+                          cursor: 'pointer',
+                          backgroundColor: bgColor,
+                          borderBottom: idx < notes.length - 1 ? '1px solid #e0e0e0' : 'none',
+                          '&:hover': { backgroundColor: status === 'review' ? '#c8e6c9' : '#ffe0b2' }
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          Row {n.index} • {status === 'review' ? 'Under Review' : 'Mismatch Detected'}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mb: 1, color: '#666' }}>{n.message}</Typography>
+                        <Stack spacing={0.5}>
+                          {(n.files || []).map((f: any) => {
+                            const isSuspect = (n.suspects || []).some((s: any) => s.fileIndex === f.fileIndex && s.probability > 0.5)
+                            const isMatch = (n.suspects || []).every((s: any) => s.probability <= 0.5) || (n.suspects || []).length === 0
+                            const color = isMatch ? '#4caf50' : (isSuspect ? '#f44336' : '#ffc107')
+                            return (
+                              <Paper key={f.fileIndex} variant="outlined" sx={{ p: 0.5, backgroundColor: color + '20', borderColor: color }}>
+                                <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b> (row {f.row}): {f.text}</Typography>
+                              </Paper>
+                            )
+                          })}
+                          {(n.issues || []).map((iss: any, ix: number) => (
+                            <Box key={ix} sx={{ mt: 1 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>AI Analysis:</Typography>
+                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>{iss.reasoning || iss.comment || 'No explanation provided'}</Typography>
+                              {iss.values && (
+                                <Box sx={{ mt: 0.5 }}>
+                                  {Object.keys(iss.values).map((lang) => (
+                                    <Typography key={lang} variant="caption" sx={{ display: 'block', color: '#555' }}>{lang}: {iss.values[lang]}</Typography>
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
+                          ))}
+                        </Stack>
+                      </Box>
+                    )
+                  })}
+                </Stack>
+              </Paper>
             </Box>
           )}
 
