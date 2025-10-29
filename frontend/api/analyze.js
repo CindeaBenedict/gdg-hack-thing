@@ -152,21 +152,24 @@ export default async function handler(req, res) {
           // Compute embeddings for all texts
           embeddings = await Promise.all(allTexts.map(t => embed(t)))
           
-          // Group by semantic similarity > 0.85
+          // Group by VERY HIGH semantic similarity > 0.92 (overkill semantics)
           for (let i = 0; i < allTexts.length; i++) {
             let found = false
             for (const g of groups) {
               const sim = cosineSimilarity(embeddings[i], g.embeddings[0])
-              if (sim > 0.85) {
+              console.log('  Comparing file ' + allIndices[i] + ' with group[0] file ' + g.indices[0] + ': sim=' + sim.toFixed(3))
+              if (sim > 0.92) {
                 g.indices.push(allIndices[i])
                 g.texts.push(allTexts[i])
                 g.embeddings.push(embeddings[i])
                 found = true
+                console.log('    -> Grouped together (sim > 0.92)')
                 break
               }
             }
             if (!found) {
               groups.push({ indices: [allIndices[i]], texts: [allTexts[i]], embeddings: [embeddings[i]] })
+              console.log('  File ' + allIndices[i] + ' forms new group')
             }
           }
         } catch (e) {
@@ -191,35 +194,24 @@ export default async function handler(req, res) {
         
         // Sort groups by size (largest = majority)
         groups.sort((a, b) => b.indices.length - a.indices.length)
-        const majorityGroup = groups[0]
-        const minorityIndices = new Set()
-        for (let i = 1; i < groups.length; i++) {
-          for (const idx of groups[i].indices) minorityIndices.add(idx)
-        }
         
-        // Check if it's a tie (all groups same size)
-        const isTie = groups.length > 1 && groups.every(g => g.indices.length === groups[0].indices.length)
+        // SIMPLE LOGIC:
+        // - Largest group = majority (correct files) → LOW probability (0.2) → YELLOW
+        // - Smaller groups = minority (wrong files) → HIGH probability (0.9) → RED
+        // - If all groups equal size = tie → MEDIUM probability (0.5) → GREEN
         
-        console.log('Row ' + row + ' majority:', majorityGroup.indices, 'minority:', Array.from(minorityIndices), 'isTie:', isTie)
+        const maxGroupSize = groups[0].indices.length
+        const isTie = groups.every(g => g.indices.length === maxGroupSize)
         
-        // Assign probabilities:
-        // High probability = suspect/likely wrong → RED
-        // Low probability = likely correct → YELLOW
-        // Medium probability = uncertain → GREEN
-        for (let i = 0; i < allIndices.length; i++) {
-          const fileIdx = allIndices[i]
-          let prob
-          if (isTie) {
-            // Tie = uncertain which is correct
-            prob = 0.5
-          } else {
-            const isMajority = majorityGroup.indices.includes(fileIdx)
-            // MAJORITY (2 files agree) = LOW suspect probability (0.25) → YELLOW "Correct"
-            // MINORITY (1 file differs) = HIGH suspect probability (0.85) → RED "Wrong"
-            prob = isMajority ? 0.25 : 0.85
+        console.log('Row ' + row + ' maxGroupSize:', maxGroupSize, 'isTie:', isTie)
+        
+        for (const g of groups) {
+          const isMajority = g.indices.length === maxGroupSize && !isTie
+          const prob = isTie ? 0.5 : (isMajority ? 0.2 : 0.9)
+          for (const fileIdx of g.indices) {
+            suspects.push({ fileIndex: fileIdx, probability: prob })
+            console.log('Row ' + row + ' file ' + fileIdx + ' size=' + g.indices.length + ' isMajority=' + isMajority + ' prob=' + prob)
           }
-          console.log('Row ' + row + ' file ' + fileIdx + ' prob:', prob, 'isMajority:', majorityGroup.indices.includes(fileIdx))
-          suspects.push({ fileIndex: fileIdx, probability: prob })
         }
       }
       const issue = items.find(it => (it.ai?.issues || []).length)
@@ -385,7 +377,7 @@ async function semanticAlign(a, b) {
     
     for (let i = 0; i < a.length; i++) {
       let bestJ = -1
-      let bestScore = 0.75 // Minimum semantic similarity threshold
+      let bestScore = 0.92 // VERY HIGH semantic similarity threshold - only match truly equivalent clauses
       
       for (let j = 0; j < b.length; j++) {
         if (usedB.has(j)) continue
@@ -401,6 +393,8 @@ async function semanticAlign(a, b) {
         out.push([i, bestJ, bestScore])
       }
     }
+    
+    console.log('Semantic align: matched ' + out.length + '/' + a.length + ' segments (threshold 0.92)')
     
     return out
   } catch (e) {
