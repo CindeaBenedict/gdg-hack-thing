@@ -24,9 +24,8 @@ export default function Upload() {
     setNotes([])
     setLogs((l) => [...l, `Starting analysis for ${files.length} files`])
     try {
-      const data = new FormData()
-      files.forEach(f => data.append('files', f))
-      const res = await api.post('/analyze', data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const texts = await Promise.all(files.slice(0, 2).map(f => f.text()))
+      const res = await api.post('/analyze', { texts })
       setResult(res.data)
       const rows = (res.data?.pairs || []) as any[]
       const mismatches = rows.filter(r => r.isMismatch)
