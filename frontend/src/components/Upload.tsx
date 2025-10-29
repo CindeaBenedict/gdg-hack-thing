@@ -321,21 +321,43 @@ export default function Upload() {
                         <Typography variant="body2" sx={{ mb: 1, color: '#666' }}>{n.message}</Typography>
                         <Stack spacing={0.5}>
                           {(n.files || []).map((f: any) => {
-                            const isSuspect = (n.suspects || []).some((s: any) => s.fileIndex === f.fileIndex && s.probability > 0.5)
-                            const isMatch = (n.suspects || []).every((s: any) => s.probability <= 0.5) || (n.suspects || []).length === 0
-                            const color = isMatch ? '#4caf50' : (isSuspect ? '#f44336' : '#ffc107')
+                            // Find suspect probability for this file
+                            const suspectProb = (n.suspects || []).find((s: any) => s.fileIndex === f.fileIndex)?.probability || 0
+                            // High suspect probability = likely wrong (RED)
+                            // Low suspect probability = likely correct/majority (YELLOW)
+                            // All low probabilities = uncertain (GREEN)
+                            const maxProb = Math.max(...(n.suspects || []).map((s: any) => s.probability || 0))
+                            const isHighSuspect = suspectProb > 0.6
+                            const isLowSuspect = suspectProb <= 0.6 && maxProb > 0.6
+                            const isUncertain = maxProb <= 0.6
+                            const color = isUncertain ? '#4caf50' : (isHighSuspect ? '#f44336' : '#ffc107')
+                            const label = isUncertain ? 'Under Review' : (isHighSuspect ? 'Suspect (Minority)' : 'Likely Correct (Majority)')
                             return (
                               <Paper key={f.fileIndex} variant="outlined" sx={{ p: 0.5, backgroundColor: color + '20', borderColor: color }}>
+                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5 }}>{label}</Typography>
                                 <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b> (row {f.row}): {f.text}</Typography>
                               </Paper>
                             )
                           })}
                           {(n.issues || []).map((iss: any, ix: number) => (
-                            <Box key={ix} sx={{ mt: 1 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>AI Analysis:</Typography>
-                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>{iss.reasoning || iss.comment || 'No explanation provided'}</Typography>
+                            <Box key={ix} sx={{ mt: 1, p: 1, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>AI Analysis:</Typography>
+                              <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>{iss.reasoning || iss.comment || 'No explanation provided'}</Typography>
+                              {iss.file_diagnostics?.error_explanation && (
+                                <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontStyle: 'italic' }}>
+                                  {iss.file_diagnostics.error_explanation}
+                                </Typography>
+                              )}
+                              {iss.suggested_fix?.justification && (
+                                <Box sx={{ mt: 0.5, p: 0.5, backgroundColor: '#e3f2fd', borderRadius: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>Suggested Fix:</Typography>
+                                  <Typography variant="caption" sx={{ display: 'block' }}>{iss.suggested_fix.consistent_value}</Typography>
+                                  <Typography variant="caption" sx={{ display: 'block', fontSize: 10, color: '#666' }}>{iss.suggested_fix.justification}</Typography>
+                                </Box>
+                              )}
                               {iss.values && (
                                 <Box sx={{ mt: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>Detected Values:</Typography>
                                   {Object.keys(iss.values).map((lang) => (
                                     <Typography key={lang} variant="caption" sx={{ display: 'block', color: '#555' }}>{lang}: {iss.values[lang]}</Typography>
                                   ))}

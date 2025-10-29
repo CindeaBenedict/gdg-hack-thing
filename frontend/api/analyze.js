@@ -293,47 +293,104 @@ async function watsonxCheck(a, b) {
   const model = process.env.WML_MODEL_ID || 'meta-llama/llama-3-2-90b-vision-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
-  const prompt = `You are an AI document consistency checker and confidence estimator.
+  const prompt = `You are an AI document consistency checker and correction assistant.
 
-Analyze the provided multilingual or multi-format segments ONLY. Do NOT use any previous data or memory.
+Analyze ONLY the provided multilingual or multi-format document segments.
+Do NOT use memory, previous inputs, or external data.
 
-Your goals:
-1. Identify factual inconsistencies across document versions.
-2. Compute a probabilistic confidence score (0.0–1.0) for each mismatch, based on:
-   • Value similarity (numeric or lexical closeness)
-   • Entity alignment confidence (same clause or row?)
-   • Repetition strength across documents
-   • Structural alignment between rows
-3. Return probabilities that reflect **relative certainty of inconsistency**, not random scores.
+### Core Objectives
+1. Detect factual inconsistencies across any number of document versions (numbers, monetary amounts, dates, entity names).
+2. Dynamically compute weighted confidence scores for each mismatch.
+3. Identify which file(s) or language(s) are inconsistent based on majority or statistical consensus.
+4. Suggest corrected values and sentences to achieve factual consistency across all versions.
+5. Support ANY language and ANY number of files.
 
-Consider:
-- A mismatch repeated across several rows = higher confidence (≈ 0.8 – 1.0).
-- Slight numeric difference or weak alignment = medium confidence (≈ 0.5 – 0.7).
-- Ambiguous or unaligned = low confidence (< 0.5).
+### Output Rules
+- Output EXACTLY ONE valid JSON object.
+- Output NOTHING outside JSON.
+- The output must strictly follow the schema below.
+- Confidence and probabilities must be between 0.00 and 1.00.
+- End output immediately after the final "}".
 
-Output exactly ONE valid JSON. No text outside JSON.
-
-Strict schema:
+### UNIVERSAL JSON SCHEMA
 {
   "status": "MATCH|MISMATCH|REVIEW",
   "confidence": 0.00–1.00,
   "issues": [
     {
+      "row": <row_number or null>,
       "type": "number|monetary|date|entity|semantic",
-      "values": {"lang1": "...", "lang2": "..."},
-      "suspect_probability": 0.60,
-      "reasoning": "Explain which language likely contains the inconsistent value.",
-      "comment": "Brief summary of the inconsistency"
+      "values": {
+        "<language_or_filename>": "<raw extracted value>",
+        "...": "..."
+      },
+      "sentences": {
+        "<language_or_filename>": "<full sentence containing the inconsistent value>",
+        "...": "..."
+      },
+      "numeric_analysis": {
+        "currency": "EUR|USD|LOCAL|null",
+        "normalized_values": {
+          "<language_or_filename>": <numeric_value>,
+          "...": <numeric_value>
+        },
+        "abs_differences": {
+          "<language_or_filename>": <absolute difference from mean or consensus>,
+          "...": <absolute difference>
+        },
+        "pct_differences": {
+          "<language_or_filename>": <relative difference (0–1)>,
+          "...": <relative difference>
+        }
+      },
+      "confidence_factors": {
+        "value_alignment": 0.0–1.0,
+        "semantic_similarity": 0.0–1.0,
+        "repetition_pattern": 0.0–1.0,
+        "format_consistency": 0.0–1.0
+      },
+      "suspect_probabilities": {
+        "<language_or_filename>": <probability_that_this_version_is_wrong>,
+        "...": <probability>
+      },
+      "reasoning": "Brief explanation of detected inconsistency and which versions disagree.",
+      "file_diagnostics": {
+        "total_files": <integer>,
+        "majority_consensus": ["<file_1>", "<file_2>", "..."],
+        "deviating_files": ["<file_3>", "..."],
+        "error_explanation": "Human-readable explanation of which versions disagree and why (e.g., numeric deviation, translation drift, formatting)."
+      },
+      "suggested_fix": {
+        "consistent_value": "<consensus or corrected value>",
+        "preferred_language": "<detected consensus language or most accurate file>",
+        "updated_sentences": {
+          "<language_or_filename>": "<sentence with corrected value>",
+          "...": "..."
+        },
+        "justification": "Explain why this correction was chosen (e.g., 4/5 files agree, deviation magnitude <1%)."
+      },
+      "comment": "Concise summary of what is inconsistent and which file is likely incorrect."
     }
   ]
 }
 
-Rules:
-- Output NOTHING outside JSON.
-- All probabilities between 0.00 and 1.00.
-- If all values identical → MATCH.
-- Never output static or repeated probabilities (each row must differ if context differs).
-- End generation immediately after the final }.
+### Confidence Framework
+Compute suspect_probabilities dynamically:
+For each version X:
+  suspect_probabilities[X] = 1 - (alignment_score[X] / average_alignment)
+
+Overall confidence = mean(semantic_similarity, format_consistency, 1 - stddev(normalized_values)/max_value)
+
+### Correction Rules
+- Handle any number of input files (2–N).
+- Support any written language.
+- Use cross-language semantic alignment rather than token similarity.
+- Derive the consensus value from the median or majority cluster of aligned values.
+- If more than one cluster exists → set status = "REVIEW".
+- If only stylistic or notation differences exist (e.g., comma vs dot, € before vs after number) → set status = "REVIEW" instead of "MISMATCH".
+- Never invent entities, currencies, or years not explicitly present in the input.
+- Maintain the tone and structure of each language in "updated_sentences".
+- End immediately after the final bracket.
 
 Input A: ${a}
 Input B: ${b}
