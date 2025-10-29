@@ -290,7 +290,7 @@ async function watsonxCheck(a, b) {
   const key = process.env.WML_API_KEY
   const project = process.env.WML_PROJECT_ID
   const base = process.env.WML_API_URL || 'https://us-south.ml.cloud.ibm.com'
-  const model = process.env.WML_MODEL_ID || 'ibm/granite-3-2-8b-instruct'
+  const model = process.env.WML_MODEL_ID || 'meta-llama/llama-3-2-90b-vision-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
   const prompt = `You are an AI document consistency checker and confidence estimator.
@@ -342,7 +342,30 @@ Output:`
   const r = await fetch(`${base}/ml/v1/text/generation?version=2023-05-29`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ input: prompt, parameters: { decoding_method: 'greedy', max_new_tokens: 300, min_new_tokens: 0, repetition_penalty: 1 }, model_id: model, project_id: project })
+    body: JSON.stringify({
+      input: prompt,
+      parameters: {
+        decoding_method: 'greedy',
+        max_new_tokens: 200,
+        min_new_tokens: 0,
+        repetition_penalty: 1
+      },
+      model_id: model,
+      project_id: project,
+      moderations: {
+        hap: {
+          input: { enabled: true, threshold: 0.5, mask: { remove_entity_value: true } },
+          output: { enabled: true, threshold: 0.5, mask: { remove_entity_value: true } }
+        },
+        pii: {
+          input: { enabled: true, threshold: 0.5, mask: { remove_entity_value: true } },
+          output: { enabled: true, threshold: 0.5, mask: { remove_entity_value: true } }
+        },
+        granite_guardian: {
+          input: { threshold: 1 }
+        }
+      }
+    })
   })
   if (!r.ok) return { status: 'REVIEW', confidence: 0, issues: [] }
   const out = await r.json()
