@@ -138,26 +138,52 @@ export default async function handler(req, res) {
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
-        // Collect all file texts for this row to find majority
+        // Collect all file texts for this row to find majority using SEMANTIC similarity
         const allTexts = [items[0]?.textA || '', ...items.map(it => it.textB || '')]
         const allIndices = [0, ...items.map(it => it.docB)]
         
         console.log('Row ' + row + ' texts:', allTexts.map((t, i) => allIndices[i] + ':' + t.substring(0, 50)))
         
-        // Count occurrences of similar texts (group by similarity > 0.7)
+        // Use semantic embeddings to group similar texts across languages
         const groups = []
-        for (let i = 0; i < allTexts.length; i++) {
-          let found = false
-          for (const g of groups) {
-            if (similarity(allTexts[i], g.texts[0]) > 0.7) {
-              g.indices.push(allIndices[i])
-              g.texts.push(allTexts[i])
-              found = true
-              break
+        let embeddings = []
+        
+        try {
+          // Compute embeddings for all texts
+          embeddings = await Promise.all(allTexts.map(t => embed(t)))
+          
+          // Group by semantic similarity > 0.85
+          for (let i = 0; i < allTexts.length; i++) {
+            let found = false
+            for (const g of groups) {
+              const sim = cosineSimilarity(embeddings[i], g.embeddings[0])
+              if (sim > 0.85) {
+                g.indices.push(allIndices[i])
+                g.texts.push(allTexts[i])
+                g.embeddings.push(embeddings[i])
+                found = true
+                break
+              }
+            }
+            if (!found) {
+              groups.push({ indices: [allIndices[i]], texts: [allTexts[i]], embeddings: [embeddings[i]] })
             }
           }
-          if (!found) {
-            groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
+        } catch (e) {
+          // Fallback to lexical if embedding fails
+          for (let i = 0; i < allTexts.length; i++) {
+            let found = false
+            for (const g of groups) {
+              if (similarity(allTexts[i], g.texts[0]) > 0.7) {
+                g.indices.push(allIndices[i])
+                g.texts.push(allTexts[i])
+                found = true
+                break
+              }
+            }
+            if (!found) {
+              groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
+            }
           }
         }
         
@@ -342,7 +368,7 @@ function align(a, b) {
 async function semanticAlign(a, b) {
   // Semantic cross-language alignment using embeddings
   // For each segment in a, find best match in b by cosine similarity
-  const useSemanticAlign = process.env.ENABLE_SEMANTIC_ALIGN === '1'
+  const useSemanticAlign = process.env.ENABLE_SEMANTIC_ALIGN !== '0'
   
   if (!useSemanticAlign) {
     // Fallback to greedy alignment
