@@ -93,7 +93,7 @@ export default function Upload() {
       .filter(p => p.length > 0)
     console.log('Frontend segmented into ' + paragraphs.length + ' paragraphs')
     return paragraphs
-  }
+  } 
 
   // Build segments and refs when result comes in
   useEffect(() => {
@@ -109,7 +109,8 @@ export default function Upload() {
       setEditedTexts(texts)
       setEditable(new Array(texts.length).fill(false))
     } else {
-      setSegments([])
+      setSegments([]) ///wathever
+
       rowRefs.current = []
       setHighlightMap([])
       setEditedHtmls([])
