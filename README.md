@@ -57,6 +57,9 @@ npm run dev
 
 Open http://localhost:5173 and sign in.
 
+### Architecture
+- See `docs/architecture.md` for the integrated leverage points and backend blueprint.
+
 ## API
 - POST `/api/analyze` multipart form: `source`, `target`
 - GET `/api/reports` list user reports
