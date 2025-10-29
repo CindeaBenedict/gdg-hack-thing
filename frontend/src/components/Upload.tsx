@@ -32,7 +32,7 @@ export default function Upload() {
     setLoading(true)
     setResult(null)
     setNotes([])
-    setLogs((l) => [...l, `Starting analysis for ${files.length} files`])
+    setLogs((l) => [...l, 'Starting analysis for ' + files.length + ' files'])
     try {
       const sel = files
       const fd = new FormData()
@@ -91,7 +91,7 @@ export default function Upload() {
       rowRefs.current = segs.map((arr) => new Array(arr.length).fill(null))
       setHighlightMap(new Array(texts.length).fill(-1))
       // init editors from server response
-      const htmls: string[] = result?.inputs?.htmls || texts.map(t => `<pre>${escapeHtml(t)}</pre>')
+      const htmls: string[] = result?.inputs?.htmls || texts.map(t => '<pre>' + escapeHtml(t) + '</pre>')
       setEditedHtmls(htmls)
       setEditedTexts(texts)
       setEditable(new Array(texts.length).fill(false))
@@ -159,7 +159,7 @@ export default function Upload() {
         const blob = (htmlDocx as any).default?.asBlob ? (htmlDocx as any).default.asBlob(htmlContent) : (htmlDocx as any).asBlob?.(htmlContent) || new Blob([htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
         const a = document.createElement('a')
         a.href = URL.createObjectURL(blob)
-        a.download = name.endsWith('.docx') ? name : `${name}.docx`
+        a.download = name.endsWith('.docx') ? name : name + '.docx'
         a.click()
       } catch (e) {
         // Fallback to text download if DOCX export fails
@@ -181,7 +181,7 @@ export default function Upload() {
         doc.text(ln || ' ', 10, y)
         y += 7
       })
-      doc.save(name.endsWith('.pdf') ? name : `${name}.pdf`)
+      doc.save(name.endsWith('.pdf') ? name : name + '.pdf')
       return
     }
     const blob = new Blob([editedTexts[i] || ''], { type: 'text/plain;charset=utf-8' })
@@ -219,11 +219,11 @@ export default function Upload() {
           {error && <Alert severity="error">{error}</Alert>}
           <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="outlined" component="label">
-              {files.length ? `${files.length} files selected` : 'Select files'}
+              {files.length ? files.length + ' files selected' : 'Select files'}
               <input type="file" hidden multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} />
             </Button>
             <Button variant="contained" onClick={onAnalyze} disabled={loading}>Run</Button>
-            {files.length > 0 && <Chip label={`${files.length} selected`} />}
+            {files.length > 0 && <Chip label={files.length + ' selected'} />}
           </Stack>
 
           {result && (
@@ -316,7 +316,7 @@ export default function Upload() {
                     <AccordionDetails>
                       <Stack spacing={0.5}>
                         {(n.files || []).map((f: any) => (
-                          <div key={f.fileIndex}><b>{f.fileName || `File ${f.fileIndex}`}</b> row {f.row}: {f.text}</div>
+                          <div key={f.fileIndex}><b>{f.fileName || 'File ' + f.fileIndex}</b> row {f.row}: {f.text}</div>
                         ))}
                         {(n.issues || []).map((iss: any, ix: number) => (
                           <div key={ix}>
@@ -331,7 +331,7 @@ export default function Upload() {
                           </div>
                         ))}
                         {(n.suspects || []).length > 0 && (
-                          <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => `${s.fileIndex}: ${Math.round((s.probability || 0)*100)}%`).join(', ')}</div>
+                          <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => s.fileIndex + ': ' + Math.round((s.probability || 0)*100) + '%').join(', ')}</div>
                         )}
                         <div style={{ fontSize: 12, color: '#666' }}>(Click a finding to highlight in documents)</div>
                       </Stack>
