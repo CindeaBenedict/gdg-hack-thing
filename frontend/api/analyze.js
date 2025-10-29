@@ -81,17 +81,30 @@ export default async function handler(req, res) {
         const t = oth[j] || ''
         const baseSim = similarity(s, t)
         
-        // Try RAG cache first
-        const cached = await searchSimilar(s, t, 0.95)
+        // Try RAG cache first (with timeout protection)
         let verdict
-        if (cached.hit) {
-          verdict = cached.cached
-          cacheHits++
+        const useRag = process.env.ENABLE_RAG === '1'
+        if (useRag) {
+          try {
+            const cached = await Promise.race([
+              searchSimilar(s, t, 0.95),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('RAG timeout')), 5000))
+            ])
+            if (cached.hit) {
+              verdict = cached.cached
+              cacheHits++
+            } else {
+              verdict = await watsonxCheck(s, t)
+              cacheMisses++
+              storePair(s, t, verdict).catch(() => {}) // fire and forget
+            }
+          } catch (e) {
+            verdict = await watsonxCheck(s, t)
+            cacheMisses++
+          }
         } else {
           verdict = await watsonxCheck(s, t)
           cacheMisses++
-          // Store in RAG for future
-          await storePair(s, t, verdict)
         }
         
         const aiMismatch = verdict?.status && verdict.status !== 'MATCH'
@@ -99,9 +112,11 @@ export default async function handler(req, res) {
       }
     }
     
-    logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses')
-    const ragStats = getStats()
-    logs.push('RAG store: ' + ragStats.totalCached + ' entries cached')
+    if (process.env.ENABLE_RAG === '1') {
+      logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses')
+      const ragStats = getStats()
+      logs.push('RAG store: ' + ragStats.totalCached + ' entries cached')
+    }
 
     // Build explanation boxes per base row i
     const byRow = new Map()
