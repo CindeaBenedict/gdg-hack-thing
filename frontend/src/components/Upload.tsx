@@ -153,22 +153,14 @@ export default function Upload() {
       const name = (result?.inputs?.names?.[i] || 'file' + (i + 1))
     const kind = (result?.inputs?.kinds?.[i] || 'txt')
     if (kind === 'docx') {
-      try {
-        const htmlDocx = await import('html-docx-js/dist/html-docx')
-        const htmlContent = editedHtmls[i] || escapeHtml(editedTexts[i] || '')
-        const blob = (htmlDocx as any).default?.asBlob ? (htmlDocx as any).default.asBlob(htmlContent) : (htmlDocx as any).asBlob?.(htmlContent) || new Blob([htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = name.endsWith('.docx') ? name : name + '.docx'
-        a.click()
-      } catch (e) {
-        // Fallback to text download if DOCX export fails
-        const blob = new Blob([editedTexts[i] || ''], { type: 'text/plain;charset=utf-8' })
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = name.replace(/\.docx$/i, '.txt')
-        a.click()
-      }
+      // Download as HTML file to preserve formatting
+      const htmlContent = editedHtmls[i] || ('<pre>' + escapeHtml(editedTexts[i] || '') + '</pre>')
+      const fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + name + '</title></head><body>' + htmlContent + '</body></html>'
+      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = name.replace(/\.docx$/i, '.html')
+      a.click()
       return
     }
     if (kind === 'pdf') {
