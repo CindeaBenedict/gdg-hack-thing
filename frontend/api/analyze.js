@@ -159,21 +159,26 @@ export default async function handler(req, res) {
         
         console.log('Row ' + row + ' texts:', allTexts.map((t, i) => allIndices[i] + ':' + t.substring(0, 50)))
         
-        // Group by lexical similarity (fast, works on Vercel)
+        // Group by SEMANTIC equivalence using watsonx AI
         const groups = []
         for (let i = 0; i < allTexts.length; i++) {
           let found = false
           for (const g of groups) {
-            const sim = similarity(allTexts[i], g.texts[0])
-            if (sim > 0.6) {
+            // Use watsonx to determine if texts are semantically equivalent
+            const aiCheck = await watsonxCheck(allTexts[i], g.texts[0])
+            const areSemanticallyEquivalent = aiCheck.status === 'MATCH' || (aiCheck.confidence && aiCheck.confidence < 0.3)
+            console.log('  Semantic check file ' + allIndices[i] + ' vs group[0] file ' + g.indices[0] + ': ' + aiCheck.status + ' (conf=' + (aiCheck.confidence || 0) + ')')
+            if (areSemanticallyEquivalent) {
               g.indices.push(allIndices[i])
               g.texts.push(allTexts[i])
               found = true
+              console.log('    ✓ GROUPED - semantically equivalent')
               break
             }
           }
           if (!found) {
             groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
+            console.log('  File ' + allIndices[i] + ' → NEW GROUP (semantically different)')
           }
         }
         
@@ -182,22 +187,27 @@ export default async function handler(req, res) {
         // Sort groups by size (largest = majority)
         groups.sort((a, b) => b.indices.length - a.indices.length)
         
-        // SIMPLE LOGIC:
+        // SEMANTIC COLOR LOGIC:
         // - Largest group = majority (correct files) → LOW probability (0.2) → YELLOW
-        // - Smaller groups = minority (wrong files) → HIGH probability (0.9) → RED
-        // - If all groups equal size = tie → MEDIUM probability (0.5) → GREEN
+        // - Smaller groups = minority (wrong files) → HIGH probability (0.9) → RED  
+        // - 50/50 tie (even split) = uncertain → MEDIUM probability (0.5) → GREEN
         
         const maxGroupSize = groups[0].indices.length
-        const isTie = groups.every(g => g.indices.length === maxGroupSize)
+        const totalFiles = allIndices.length
+        const isTie = groups.length > 1 && groups.every(g => g.indices.length === maxGroupSize)
+        const is5050 = groups.length === 2 && totalFiles % 2 === 0 && groups[0].indices.length === groups[1].indices.length
         
-        console.log('Row ' + row + ' maxGroupSize:', maxGroupSize, 'isTie:', isTie)
+        console.log('Row ' + row + ' maxGroupSize:', maxGroupSize, 'totalFiles:', totalFiles, 'isTie:', isTie, 'is5050:', is5050)
         
         for (const g of groups) {
-          const isMajority = g.indices.length === maxGroupSize && !isTie
-          const prob = isTie ? 0.5 : (isMajority ? 0.2 : 0.9)
+          const isMajority = g.indices.length === maxGroupSize && !isTie && !is5050
+          const isMinority = g.indices.length < maxGroupSize && !isTie && !is5050
+          // 50/50 or tie → GREEN, Majority → YELLOW, Minority → RED
+          const prob = (isTie || is5050) ? 0.5 : (isMajority ? 0.2 : 0.9)
           for (const fileIdx of g.indices) {
             suspects.push({ fileIndex: fileIdx, probability: prob })
-            console.log('Row ' + row + ' file ' + fileIdx + ' size=' + g.indices.length + ' isMajority=' + isMajority + ' prob=' + prob)
+            const color = prob > 0.6 ? 'RED' : (prob === 0.5 ? 'GREEN' : 'YELLOW')
+            console.log('Row ' + row + ' file ' + fileIdx + ' groupSize=' + g.indices.length + ' → prob=' + prob + ' → ' + color)
           }
         }
       }
