@@ -26,7 +26,7 @@ export default function Upload() {
     try {
       const data = new FormData()
       files.forEach(f => data.append('files', f))
-      const res = await api.post('/api/analyze', data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await api.post('/analyze', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setResult(res.data)
       const rows = (res.data?.pairs || []) as any[]
       const mismatches = rows.filter(r => r.isMismatch)

@@ -20,7 +20,7 @@ export default function Dashboard() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.get('/api/reports')
+      const res = await api.get('/reports')
       setItems(res.data.items)
     } catch (e: any) {
       setError(e?.response?.data?.detail || e?.message || 'Failed to load reports')
@@ -33,7 +33,7 @@ export default function Dashboard() {
     setError('')
     setSelected(null)
     try {
-      const res = await api.get(`/api/results/${projectId}`)
+      const res = await api.get(`/results/${projectId}`)
       setSelected(res.data)
     } catch (e: any) {
       setError(e?.response?.data?.detail || e?.message || 'Failed to load result')
