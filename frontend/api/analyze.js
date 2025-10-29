@@ -336,14 +336,39 @@ function escapeHtml(s) {
 
 function segment(text) {
   if (!text) return []
-  const parts = []
+  // PARAGRAPH-LEVEL segmentation for better AI accuracy
+  const paragraphs = []
+  let currentPara = []
+  
   for (const line of text.split('\n')) {
-    for (const p of line.replace(/\?|!/g, '.').split('.')) {
-      const s = p.trim()
-      if (s) parts.push(s)
+    const trimmed = line.trim()
+    if (!trimmed) {
+      // Empty line = paragraph break
+      if (currentPara.length > 0) {
+        paragraphs.push(currentPara.join(' '))
+        currentPara = []
+      }
+    } else {
+      currentPara.push(trimmed)
     }
   }
-  return parts
+  
+  // Add last paragraph
+  if (currentPara.length > 0) {
+    paragraphs.push(currentPara.join(' '))
+  }
+  
+  // If no paragraphs found, fall back to sentence splitting
+  if (paragraphs.length === 0) {
+    for (const line of text.split('\n')) {
+      for (const p of line.replace(/\?|!/g, '.').split('.')) {
+        const s = p.trim()
+        if (s) paragraphs.push(s)
+      }
+    }
+  }
+  
+  return paragraphs
 }
 
 function align(a, b) {
@@ -354,78 +379,49 @@ function align(a, b) {
 }
 
 async function semanticAlign(a, b) {
-  // Semantic cross-language alignment using embeddings
-  // For each segment in a, find best match in b by cosine similarity
-  const useSemanticAlign = false // DISABLED for Vercel - embeddings cause cache errors
-  
-  if (!useSemanticAlign) {
-    // Fallback to greedy alignment
-    return greedyAlignFallback(a, b)
-  }
-  
-  try {
-    // Compute embeddings for all segments
-    const embA = await Promise.all(a.map(s => embed(s)))
-    const embB = await Promise.all(b.map(s => embed(s)))
-    
-    const out = []
-    const usedB = new Set()
-    
-    for (let i = 0; i < a.length; i++) {
-      let bestJ = -1
-      let bestScore = 0.95 // ULTRA HIGH threshold - accuracy is king
-      
-      for (let j = 0; j < b.length; j++) {
-        if (usedB.has(j)) continue
-        const score = cosineSimilarity(embA[i], embB[j])
-        if (score > bestScore) {
-          bestScore = score
-          bestJ = j
-        }
-      }
-      
-      // Only accept if VERY high confidence
-      if (bestJ >= 0 && bestScore >= 0.95) {
-        usedB.add(bestJ)
-        out.push([i, bestJ, bestScore])
-      }
-    }
-    
-    console.log('Semantic align: matched ' + out.length + '/' + a.length + ' segments (threshold 0.95, accuracy-first mode)')
-    
-    return out
-  } catch (e) {
-    console.error('Semantic align error:', e)
-    return greedyAlignFallback(a, b)
-  }
-}
-
-function greedyAlignFallback(a, b) {
-  // Lexical similarity fallback (original logic)
+  // PURE AI SEMANTIC ALIGNMENT - uses watsonx to find matching paragraphs
+  // For each paragraph in a, ask watsonx which paragraph in b matches best
   const out = []
-  for (let i = 0; i < a.length; i++) {
-    let bestJ = Math.min(i, b.length - 1)
-    let best = -1
-    for (let dj = -2; dj <= 2; dj++) {
-      const j = i + dj
-      if (j < 0 || j >= b.length) continue
-      const s = similarity(a[i] || '', b[j] || '')
-      if (s > best) { best = s; bestJ = j }
+  const usedB = new Set()
+  
+  console.log('Starting AI-powered semantic alignment for ' + a.length + ' vs ' + b.length + ' paragraphs')
+  
+  for (let i = 0; i < Math.min(a.length, 50); i++) { // Limit to 50 to avoid timeout
+    let bestJ = -1
+    let bestConfidence = 1.0 // Lower is better (MATCH has low confidence for mismatch)
+    
+    // Ask AI to compare with multiple candidates
+    const candidates = []
+    for (let j = Math.max(0, i - 5); j < Math.min(b.length, i + 6); j++) {
+      if (usedB.has(j)) continue
+      candidates.push(j)
     }
-    out.push([i, Math.max(0, Math.min(bestJ, b.length - 1))])
+    
+    for (const j of candidates) {
+      const aiResult = await watsonxCheck(a[i], b[j])
+      const confidence = aiResult.confidence || 0.5
+      const isMatch = aiResult.status === 'MATCH'
+      
+      if (isMatch || confidence < bestConfidence) {
+        bestConfidence = confidence
+        bestJ = j
+      }
+      
+      if (isMatch) break // Perfect match found, stop searching
+    }
+    
+    if (bestJ >= 0) {
+      usedB.add(bestJ)
+      out.push([i, bestJ, 1 - bestConfidence]) // Higher score = better match
+      console.log('  Para ' + i + ' → Para ' + bestJ + ' (AI confidence: ' + (1 - bestConfidence).toFixed(2) + ')')
+    }
   }
+  
+  console.log('AI semantic alignment: matched ' + out.length + '/' + a.length + ' paragraphs')
   return out
 }
 
-function cosineSimilarity(a, b) {
-  let dot = 0, magA = 0, magB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    magA += a[i] * a[i]
-    magB += b[i] * b[i]
-  }
-  return dot / (Math.sqrt(magA) * Math.sqrt(magB))
-}
+// Removed - using pure AI alignment now
 
 function similarity(a, b) {
   if (!a && !b) return 1
