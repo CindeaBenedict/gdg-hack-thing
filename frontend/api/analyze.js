@@ -221,20 +221,28 @@ function readMultipart(req) {
 async function extractTextFromFile(buffer, filename) {
   const lower = (filename || '').toLowerCase()
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
-    const raw = await mammoth.extractRawText({ buffer })
+    // Use HTML conversion to get better paragraph structure
     const htmlRes = await mammoth.convertToHtml({ buffer })
+    const html = htmlRes.value || ''
     
-    // Fix paragraph breaks - mammoth splits on every <p> tag
-    // We need to join lines that belong together and preserve only real paragraph breaks
-    let text = (raw.value || '').trim()
+    // Extract paragraphs from HTML (each <p> tag is a real paragraph)
+    const paragraphs = []
+    const pTagRegex = /<p[^>]*>(.*?)<\/p>/gs
+    let match
+    while ((match = pTagRegex.exec(html)) !== null) {
+      const content = match[1]
+        .replace(/<[^>]+>/g, '') // Remove HTML tags
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') // Decode entities
+        .trim()
+      if (content) {
+        paragraphs.push(content)
+      }
+    }
     
-    // Replace single newlines with spaces (join broken lines)
-    // But preserve double newlines (paragraph breaks)
-    text = text.replace(/\n(?!\n)/g, ' ')
-    // Normalize multiple newlines to double newline
-    text = text.replace(/\n{3,}/g, '\n\n')
+    const text = paragraphs.join('\n\n')
+    console.log('Extracted ' + paragraphs.length + ' paragraphs from DOCX')
     
-    return { text, html: htmlRes.value || '', kind: 'docx' }
+    return { text, html, kind: 'docx' }
   }
   if (lower.endsWith('.pdf')) {
     const out = await pdfParse(buffer)
@@ -399,104 +407,44 @@ async function watsonxCheck(a, b) {
   const model = process.env.WML_MODEL_ID || 'meta-llama/llama-3-2-90b-vision-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
-  const prompt = `You are an AI document consistency checker and correction assistant.
+  const prompt = `You are a precise factual inconsistency detector.
 
-Analyze ONLY the provided multilingual or multi-format document segments.
-Do NOT use memory, previous inputs, or external data.
+Compare these two document paragraphs and extract ONLY the specific values/facts that differ.
 
-### Core Objectives
-1. Detect factual inconsistencies across any number of document versions (numbers, monetary amounts, dates, entity names).
-2. Dynamically compute weighted confidence scores for each mismatch.
-3. Identify which file(s) or language(s) are inconsistent based on majority or statistical consensus.
-4. Suggest corrected values and sentences to achieve factual consistency across all versions.
-5. Support ANY language and ANY number of files.
+### Your Task:
+1. Find numbers, dates, monetary amounts, or names that are DIFFERENT between the inputs
+2. Extract ONLY those specific values (not full sentences)
+3. Return EXACTLY ONE JSON object
 
-### Output Rules
-- Output EXACTLY ONE valid JSON object.
-- Output NOTHING outside JSON.
-- The output must strictly follow the schema below.
-- Confidence and probabilities must be between 0.00 and 1.00.
-- End output immediately after the final "}".
+### Output ONLY if there's a FACTUAL DIFFERENCE (different number, date, amount, name)
+### If the paragraphs are semantically equivalent (same meaning, just different language), output:
+{ "status": "MATCH", "confidence": 0.0, "issues": [] }
 
-### UNIVERSAL JSON SCHEMA
+### If there's a factual difference, extract ONLY the differing values:
+
+### JSON SCHEMA (MINIMAL - only differences)
 {
-  "status": "MATCH|MISMATCH|REVIEW",
-  "confidence": 0.00–1.00,
+  "status": "MATCH|MISMATCH",
+  "confidence": 0.0–1.0,
   "issues": [
     {
-      "row": <row_number or null>,
-      "type": "number|monetary|date|entity|semantic",
+      "type": "number|monetary|date|entity",
       "values": {
-        "<language_or_filename>": "<raw extracted value>",
-        "...": "..."
+        "A": "<extract ONLY the differing value from Input A>",
+        "B": "<extract ONLY the differing value from Input B>"
       },
-      "sentences": {
-        "<language_or_filename>": "<full sentence containing the inconsistent value>",
-        "...": "..."
-      },
-      "numeric_analysis": {
-        "currency": "EUR|USD|LOCAL|null",
-        "normalized_values": {
-          "<language_or_filename>": <numeric_value>,
-          "...": <numeric_value>
-        },
-        "abs_differences": {
-          "<language_or_filename>": <absolute difference from mean or consensus>,
-          "...": <absolute difference>
-        },
-        "pct_differences": {
-          "<language_or_filename>": <relative difference (0–1)>,
-          "...": <relative difference>
-        }
-      },
-      "confidence_factors": {
-        "value_alignment": 0.0–1.0,
-        "semantic_similarity": 0.0–1.0,
-        "repetition_pattern": 0.0–1.0,
-        "format_consistency": 0.0–1.0
-      },
-      "suspect_probabilities": {
-        "<language_or_filename>": <probability_that_this_version_is_wrong>,
-        "...": <probability>
-      },
-      "reasoning": "Brief explanation of detected inconsistency and which versions disagree.",
-      "file_diagnostics": {
-        "total_files": <integer>,
-        "majority_consensus": ["<file_1>", "<file_2>", "..."],
-        "deviating_files": ["<file_3>", "..."],
-        "error_explanation": "Human-readable explanation of which versions disagree and why (e.g., numeric deviation, translation drift, formatting)."
-      },
-      "suggested_fix": {
-        "consistent_value": "<consensus or corrected value>",
-        "preferred_language": "<detected consensus language or most accurate file>",
-        "updated_sentences": {
-          "<language_or_filename>": "<sentence with corrected value>",
-          "...": "..."
-        },
-        "justification": "Explain why this correction was chosen (e.g., 4/5 files agree, deviation magnitude <1%)."
-      },
-      "comment": "Concise summary of what is inconsistent and which file is likely incorrect."
+      "comment": "Brief: what differs (e.g., 'Amount: 136M vs 135M')"
     }
   ]
 }
 
-### Confidence Framework
-Compute suspect_probabilities dynamically:
-For each version X:
-  suspect_probabilities[X] = 1 - (alignment_score[X] / average_alignment)
-
-Overall confidence = mean(semantic_similarity, format_consistency, 1 - stddev(normalized_values)/max_value)
-
-### Correction Rules
-- Handle any number of input files (2–N).
-- Support any written language.
-- Use cross-language semantic alignment rather than token similarity.
-- Derive the consensus value from the median or majority cluster of aligned values.
-- If more than one cluster exists → set status = "REVIEW".
-- If only stylistic or notation differences exist (e.g., comma vs dot, € before vs after number) → set status = "REVIEW" instead of "MISMATCH".
-- Never invent entities, currencies, or years not explicitly present in the input.
-- Maintain the tone and structure of each language in "updated_sentences".
-- End immediately after the final bracket.
+### CRITICAL RULES:
+1. If inputs are the SAME FACTS in different languages → status="MATCH", issues=[]
+2. Extract ONLY the 3-10 word snippet that differs (not full sentences)
+3. Focus on: numbers, EUR amounts, dates, percentages, article numbers
+4. Ignore language/translation differences if facts are identical
+5. Output NOTHING outside the JSON
+6. End immediately after final }
 
 Input A: ` + a + `
 Input B: ` + b + `
