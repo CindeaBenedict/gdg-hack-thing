@@ -312,8 +312,12 @@ export default function Upload() {
               <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
                 <Stack spacing={0}>
                   {notes.map((n, idx) => {
-                    const status = (n.issues?.[0]?.reasoning || '').toLowerCase().includes('review') ? 'review' : 'mismatch'
+                    // Determine status from suspects - if any high probability, it's a mismatch
+                    const maxSuspect = Math.max(...(n.suspects || []).map((s: any) => s.probability || 0))
+                    const status = maxSuspect > 0.6 ? 'mismatch' : 'review'
                     const bgColor = status === 'review' ? '#e8f5e9' : '#fff3e0'
+                    // Get explanation from comment or reasoning
+                    const explanation = n.issues?.[0]?.comment || n.issues?.[0]?.reasoning || n.message || 'Potential inconsistency'
                     return (
                       <Box
                         key={n.index}
@@ -326,10 +330,17 @@ export default function Upload() {
                           '&:hover': { backgroundColor: status === 'review' ? '#c8e6c9' : '#ffe0b2' }
                         }}
                       >
-                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                          Row {n.index} • {status === 'review' ? 'Under Review' : 'Mismatch Detected'}
-                        </Typography>
-                        <Typography variant="body2" sx={{ mb: 1, color: '#666' }}>{n.message}</Typography>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                          <Chip 
+                            label={status === 'review' ? 'Under Review' : 'Mismatch Detected'} 
+                            size="small" 
+                            color={status === 'review' ? 'success' : 'warning'}
+                          />
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Row {n.index}
+                          </Typography>
+                        </Stack>
+                        <Typography variant="body2" sx={{ mb: 1, color: '#333', fontWeight: 500 }}>{explanation}</Typography>
                         <Stack spacing={0.5}>
                           {(n.files || []).map((f: any) => {
                             // Find suspect probability for this file
