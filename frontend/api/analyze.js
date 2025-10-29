@@ -407,44 +407,43 @@ async function watsonxCheck(a, b) {
   const model = process.env.WML_MODEL_ID || 'meta-llama/llama-3-2-90b-vision-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
-  const prompt = `You are a precise factual inconsistency detector.
+  const prompt = `You are a CRITICAL factual inconsistency detector for legal/regulatory documents.
 
-Compare these two document paragraphs and extract ONLY the specific values/facts that differ.
+IGNORE translation/language differences. ONLY flag TRUE SEMANTIC ERRORS:
+• Wrong numbers (75% vs 7.5%)
+• Wrong currencies (EUR vs USD)
+• Wrong article references (Art. 32 vs Art. 322)
+• Wrong amounts (135M vs 136M)
+• Wrong dates/years (2025 vs 2024)
+• Wrong percentages (10% vs 12%)
 
-### Your Task:
-1. Find numbers, dates, monetary amounts, or names that are DIFFERENT between the inputs
-2. Extract ONLY those specific values (not full sentences)
-3. Return EXACTLY ONE JSON object
+### Task:
+Compare these paragraphs. If they say the SAME FACTS in different languages → MATCH.
+If there's a FACTUAL ERROR → extract the EXACT differing values.
 
-### Output ONLY if there's a FACTUAL DIFFERENCE (different number, date, amount, name)
-### If the paragraphs are semantically equivalent (same meaning, just different language), output:
+### Output Format:
+MATCH (same facts):
 { "status": "MATCH", "confidence": 0.0, "issues": [] }
 
-### If there's a factual difference, extract ONLY the differing values:
-
-### JSON SCHEMA (MINIMAL - only differences)
+MISMATCH (different facts):
 {
-  "status": "MATCH|MISMATCH",
-  "confidence": 0.0–1.0,
-  "issues": [
-    {
-      "type": "number|monetary|date|entity",
-      "values": {
-        "A": "<extract ONLY the differing value from Input A>",
-        "B": "<extract ONLY the differing value from Input B>"
-      },
-      "comment": "Brief: what differs (e.g., 'Amount: 136M vs 135M')"
-    }
-  ]
+  "status": "MISMATCH",
+  "confidence": 0.85,
+  "issues": [{
+    "type": "number|monetary|date|entity|article_ref",
+    "values": { "A": "<exact value in A>", "B": "<exact value in B>" },
+    "comment": "<what differs: e.g., 'Biodiversity: 75% vs 7.5%' or 'Currency: EUR vs USD'>"
+  }]
 }
 
-### CRITICAL RULES:
-1. If inputs are the SAME FACTS in different languages → status="MATCH", issues=[]
-2. Extract ONLY the 3-10 word snippet that differs (not full sentences)
-3. Focus on: numbers, EUR amounts, dates, percentages, article numbers
-4. Ignore language/translation differences if facts are identical
-5. Output NOTHING outside the JSON
-6. End immediately after final }
+### CRITICAL:
+• Extract 2-8 words max per value (e.g., "75 %" not full sentence)
+• If A="9 % provisioning for EUR 136M" and B="9 % provisioning for EUR 135M" → values: { A:"136M", B:"135M" }
+• Article refs: Extract "Art. 322" vs "Art. 32"
+• Currencies: Extract "EUR" vs "USD"
+• NO false positives - same meaning = MATCH
+
+Output JSON only. No text before/after.
 
 Input A: ` + a + `
 Input B: ` + b + `
