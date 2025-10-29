@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.staticfiles import StaticFiles
 from uuid import uuid4
 from .services import orchestrator_client
 
@@ -27,3 +28,6 @@ def findings(job_id: str):
 @app.get("/v1/jobs/{job_id}/report.pdf")
 def report(job_id: str):
     return orchestrator_client.pdf(job_id)
+
+# Serve artifacts directory for dev
+app.mount("/artifacts", StaticFiles(directory="app/artifacts"), name="artifacts")
