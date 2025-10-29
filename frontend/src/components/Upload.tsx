@@ -363,19 +363,51 @@ export default function Upload() {
                           {(n.files || []).map((f: any) => {
                             // Find suspect probability for this file
                             const suspectProb = (n.suspects || []).find((s: any) => s.fileIndex === f.fileIndex)?.probability || 0
-                            // High suspect probability = likely wrong (RED)
-                            // Low suspect probability = likely correct/majority (YELLOW)
-                            // All low probabilities = uncertain (GREEN)
-                            const maxProb = Math.max(...(n.suspects || []).map((s: any) => s.probability || 0))
-                            const isHighSuspect = suspectProb > 0.6
-                            const isUncertain = maxProb <= 0.6
-                            // CORRECTED: high suspect = RED, low suspect = YELLOW
-                            const color = isUncertain ? '#4caf50' : (isHighSuspect ? '#f44336' : '#ffc107')
-                            const label = isUncertain ? 'Under Review' : (isHighSuspect ? 'Suspect (Wrong - Minority)' : 'Correct (Majority)')
+                            console.log('File ' + f.fileIndex + ' suspectProb:', suspectProb)
+                            
+                            // SIMPLIFIED: prob > 0.6 = RED, prob = 0.5 = GREEN, prob < 0.4 = YELLOW
+                            const isRed = suspectProb > 0.6
+                            const isGreen = suspectProb >= 0.4 && suspectProb <= 0.6
+                            const isYellow = suspectProb < 0.4
+                            
+                            const color = isRed ? '#f44336' : (isGreen ? '#4caf50' : '#ffc107')
+                            const label = isRed ? 'Wrong (Minority)' : (isGreen ? 'Under Review (Tie)' : 'Correct (Majority)')
+                            
+                            // Extract ONLY the mismatching value, not the full paragraph
+                            const issue = n.issues?.[0]
+                            let displayText = ''
+                            
+                            if (issue?.values) {
+                              // Show the specific value that differs
+                              const keys = Object.keys(issue.values)
+                              for (const key of keys) {
+                                if (f.fileName && (f.fileName.includes(key) || key.includes('file' + f.fileIndex))) {
+                                  displayText = issue.values[key]
+                                  break
+                                }
+                              }
+                            }
+                            
+                            if (!displayText && issue?.sentences) {
+                              // Try to extract from sentences
+                              const keys = Object.keys(issue.sentences)
+                              for (const key of keys) {
+                                if (f.fileName && (f.fileName.includes(key) || key.includes('file' + f.fileIndex))) {
+                                  displayText = issue.sentences[key]
+                                  break
+                                }
+                              }
+                            }
+                            
+                            // Fallback: show first 150 chars of full text
+                            if (!displayText) {
+                              displayText = f.text.substring(0, 150) + (f.text.length > 150 ? '...' : '')
+                            }
+                            
                             return (
                               <Paper key={f.fileIndex} variant="outlined" sx={{ p: 0.5, backgroundColor: color + '20', borderColor: color }}>
-                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5, color: isHighSuspect ? '#d32f2f' : (isUncertain ? '#388e3c' : '#f57c00') }}>{label}</Typography>
-                                <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b> (row {f.row}): {f.text}</Typography>
+                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5, color }}>{label}</Typography>
+                                <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b>: {displayText}</Typography>
                               </Paper>
                             )
                           })}
