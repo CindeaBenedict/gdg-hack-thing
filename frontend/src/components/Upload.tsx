@@ -150,7 +150,7 @@ export default function Upload() {
   }
 
   const downloadFile = async (i: number) => {
-    const name = (result?.inputs?.names?.[i] || `file${i+1}`)
+      const name = (result?.inputs?.names?.[i] || `file${i + 1}`)
     const kind = (result?.inputs?.kinds?.[i] || 'txt')
     if (kind === 'docx') {
       try {
@@ -195,7 +195,7 @@ export default function Upload() {
     try {
       setLoading(true)
       setError('')
-      const names = result?.inputs?.names || editedTexts.map((_, i) => `file${i+1}`)
+      const names = result?.inputs?.names || editedTexts.map((_, i) => `file${i + 1}`)
       const texts = editedTexts
       const res = await api.post('/analyze', { texts, names })
       setResult(res.data)
@@ -245,7 +245,7 @@ export default function Upload() {
                   <Paper key={i} variant="outlined" sx={{ p: 1 }}>
                     <Stack spacing={0.5}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {result.inputs.names?.[i] || `File ${i+1}`} {result.inputs.kinds?.[i] ? `(${result.inputs.kinds[i]})` : ''}
+                        {result.inputs.names?.[i] || `File ${i + 1}`} {result.inputs.kinds?.[i] ? `(${result.inputs.kinds[i]})` : ''}
                       </Typography>
                       <Stack direction="row" spacing={1}>
                         <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => toggleEdit(i)}>{editable[i] ? 'Stop editing' : 'Edit'}</Button>
