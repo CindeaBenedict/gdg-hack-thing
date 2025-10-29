@@ -12,6 +12,7 @@ export default async function handler(req, res) {
     const ct = req.headers['content-type'] || ''
     let texts = []
     let names = []
+    let kinds = []
     if (ct.includes('multipart/form-data')) {
       const files = await readMultipart(req)
       for (const f of files) {
@@ -19,11 +20,13 @@ export default async function handler(req, res) {
         logs.push(`Parsed ${f.filename} as ${kind} (${text.length} chars)`) 
         texts.push(text)
         names.push(f.filename)
+        kinds.push(kind)
       }
     } else {
       const body = await readJson(req)
       texts = Array.isArray(body?.texts) ? body.texts : []
       names = Array.isArray(body?.names) ? body.names : []
+      kinds = texts.map(() => 'text')
     }
     if (texts.length < 2) return res.status(400).json({ error: 'Provide texts[2]' })
 
@@ -84,7 +87,7 @@ export default async function handler(req, res) {
     // Summary from mismatches
     const rowsFlat = pairsAll.map(p => ({ similarity: p.similarity, isMismatch: p.isMismatch }))
     const summary = summarize(rowsFlat)
-    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs })
+    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs, inputs: { names, kinds, texts } })
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'server error' })
   }

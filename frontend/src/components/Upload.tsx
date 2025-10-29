@@ -72,6 +72,27 @@ export default function Upload() {
             </Box>
           )}
 
+          {result?.inputs?.texts?.length > 0 && (
+            <Box>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" gutterBottom>Uploaded documents</Typography>
+              <Stack spacing={1}>
+                {result.inputs.texts.map((t: string, i: number) => (
+                  <Paper key={i} variant="outlined" sx={{ p: 1 }}>
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {result.inputs.names?.[i] || `File ${i+1}`} {result.inputs.kinds?.[i] ? `(${result.inputs.kinds[i]})` : ''}
+                      </Typography>
+                      <Paper variant="outlined" sx={{ p: 1, maxHeight: 200, overflow: 'auto', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                        {t}
+                      </Paper>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            </Box>
+          )}
+
           {notes.length > 0 && (
             <Box>
               <Divider sx={{ my: 1 }} />
