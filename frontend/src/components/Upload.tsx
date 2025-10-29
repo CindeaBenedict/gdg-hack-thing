@@ -328,43 +328,82 @@ export default function Upload() {
                             // All low probabilities = uncertain (GREEN)
                             const maxProb = Math.max(...(n.suspects || []).map((s: any) => s.probability || 0))
                             const isHighSuspect = suspectProb > 0.6
-                            const isLowSuspect = suspectProb <= 0.6 && maxProb > 0.6
                             const isUncertain = maxProb <= 0.6
+                            // CORRECTED: high suspect = RED, low suspect = YELLOW
                             const color = isUncertain ? '#4caf50' : (isHighSuspect ? '#f44336' : '#ffc107')
-                            const label = isUncertain ? 'Under Review' : (isHighSuspect ? 'Suspect (Minority)' : 'Likely Correct (Majority)')
+                            const label = isUncertain ? 'Under Review' : (isHighSuspect ? 'Suspect (Wrong - Minority)' : 'Correct (Majority)')
                             return (
                               <Paper key={f.fileIndex} variant="outlined" sx={{ p: 0.5, backgroundColor: color + '20', borderColor: color }}>
-                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5 }}>{label}</Typography>
+                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5, color: isHighSuspect ? '#d32f2f' : (isUncertain ? '#388e3c' : '#f57c00') }}>{label}</Typography>
                                 <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b> (row {f.row}): {f.text}</Typography>
                               </Paper>
                             )
                           })}
-                          {(n.issues || []).map((iss: any, ix: number) => (
-                            <Box key={ix} sx={{ mt: 1, p: 1, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>AI Analysis:</Typography>
-                              <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>{iss.reasoning || iss.comment || 'No explanation provided'}</Typography>
-                              {iss.file_diagnostics?.error_explanation && (
-                                <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontStyle: 'italic' }}>
-                                  {iss.file_diagnostics.error_explanation}
-                                </Typography>
-                              )}
-                              {iss.suggested_fix?.justification && (
-                                <Box sx={{ mt: 0.5, p: 0.5, backgroundColor: '#e3f2fd', borderRadius: 0.5 }}>
-                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>Suggested Fix:</Typography>
-                                  <Typography variant="caption" sx={{ display: 'block' }}>{iss.suggested_fix.consistent_value}</Typography>
-                                  <Typography variant="caption" sx={{ display: 'block', fontSize: 10, color: '#666' }}>{iss.suggested_fix.justification}</Typography>
-                                </Box>
-                              )}
-                              {iss.values && (
-                                <Box sx={{ mt: 0.5 }}>
-                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>Detected Values:</Typography>
-                                  {Object.keys(iss.values).map((lang) => (
-                                    <Typography key={lang} variant="caption" sx={{ display: 'block', color: '#555' }}>{lang}: {iss.values[lang]}</Typography>
-                                  ))}
-                                </Box>
-                              )}
-                            </Box>
-                          ))}
+                          {(n.issues || []).map((iss: any, ix: number) => {
+                            console.log('Issue data:', iss)
+                            return (
+                              <Box key={ix} sx={{ mt: 1, p: 1, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>AI Analysis:</Typography>
+                                
+                                {/* Main explanation */}
+                                {(iss.reasoning || iss.comment) && (
+                                  <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                                    {iss.reasoning || iss.comment}
+                                  </Typography>
+                                )}
+                                
+                                {/* File diagnostics explanation */}
+                                {iss.file_diagnostics?.error_explanation && (
+                                  <Box sx={{ mt: 0.5, p: 0.5, backgroundColor: '#fff3e0', borderRadius: 0.5 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>Detailed Analysis:</Typography>
+                                    <Typography variant="caption" sx={{ display: 'block', fontStyle: 'italic' }}>
+                                      {iss.file_diagnostics.error_explanation}
+                                    </Typography>
+                                    {iss.file_diagnostics.majority_consensus && (
+                                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#f57c00' }}>
+                                        Majority: {iss.file_diagnostics.majority_consensus.join(', ')}
+                                      </Typography>
+                                    )}
+                                    {iss.file_diagnostics.deviating_files && (
+                                      <Typography variant="caption" sx={{ display: 'block', color: '#d32f2f' }}>
+                                        Deviating: {iss.file_diagnostics.deviating_files.join(', ')}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )}
+                                
+                                {/* Suggested fix */}
+                                {iss.suggested_fix?.justification && (
+                                  <Box sx={{ mt: 0.5, p: 0.5, backgroundColor: '#e3f2fd', borderRadius: 0.5 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>Suggested Fix:</Typography>
+                                    <Typography variant="caption" sx={{ display: 'block' }}>{iss.suggested_fix.consistent_value}</Typography>
+                                    <Typography variant="caption" sx={{ display: 'block', fontSize: 10, color: '#666', mt: 0.5 }}>
+                                      {iss.suggested_fix.justification}
+                                    </Typography>
+                                  </Box>
+                                )}
+                                
+                                {/* Detected values */}
+                                {iss.values && Object.keys(iss.values).length > 0 && (
+                                  <Box sx={{ mt: 0.5 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>Detected Values:</Typography>
+                                    {Object.keys(iss.values).map((lang) => (
+                                      <Typography key={lang} variant="caption" sx={{ display: 'block', color: '#555' }}>
+                                        {lang}: {iss.values[lang]}
+                                      </Typography>
+                                    ))}
+                                  </Box>
+                                )}
+                                
+                                {/* Debug: show raw issue if no fields are displayed */}
+                                {!iss.reasoning && !iss.comment && !iss.file_diagnostics && !iss.suggested_fix && !iss.values && (
+                                  <Typography variant="caption" sx={{ display: 'block', color: '#999', fontFamily: 'monospace' }}>
+                                    Raw: {JSON.stringify(iss).substring(0, 200)}
+                                  </Typography>
+                                )}
+                              </Box>
+                            )
+                          })}
                         </Stack>
                       </Box>
                     )
