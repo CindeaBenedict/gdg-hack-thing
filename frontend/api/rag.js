@@ -1,7 +1,12 @@
 // RAG (Retrieval-Augmented Generation) cache service
 // Stores embeddings of previously analyzed document pairs to avoid redundant LLM calls
 
-import { pipeline } from '@xenova/transformers'
+import { pipeline, env } from '@xenova/transformers'
+
+// Configure cache for Vercel serverless (use /tmp which is writable)
+env.cacheDir = '/tmp/.transformers-cache'
+env.allowLocalModels = false
+env.allowRemoteModels = true
 
 // In-memory vector store for serverless demo
 // In production, use Pinecone, Weaviate, or PGVector

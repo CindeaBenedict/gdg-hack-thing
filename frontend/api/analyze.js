@@ -96,7 +96,7 @@ export default async function handler(req, res) {
         
         // Only call AI if there's factual data to check
         let verdict
-        const useRag = process.env.ENABLE_RAG === '1'
+        const useRag = process.env.ENABLE_RAG !== '0' // Enabled by default for speed
         if (useRag) {
           try {
             const cached = await Promise.race([
@@ -132,10 +132,10 @@ export default async function handler(req, res) {
       }
     }
     
-    if (process.env.ENABLE_RAG === '1') {
-      logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses')
+    if (process.env.ENABLE_RAG !== '0') {
+      logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses (' + Math.round((cacheHits/(cacheHits+cacheMisses))*100) + '% hit rate)')
       const ragStats = getStats()
-      logs.push('RAG store: ' + ragStats.totalCached + ' entries cached')
+      logs.push('RAG store: ' + ragStats.totalCached + ' entries cached (reduces watsonx API load)')
     }
 
     // Build explanation boxes per base row i
