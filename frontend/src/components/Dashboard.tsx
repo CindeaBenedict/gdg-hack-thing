@@ -20,10 +20,10 @@ export default function Dashboard() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.get('/reports')
-      setItems(res.data.items)
+      const store = JSON.parse(localStorage.getItem('cm_reports') || '[]')
+      setItems(store)
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || 'Failed to load reports')
+      setError(e?.message || 'Failed to load reports')
     } finally {
       setLoading(false)
     }
@@ -33,10 +33,11 @@ export default function Dashboard() {
     setError('')
     setSelected(null)
     try {
-      const res = await api.get(`/results/${projectId}`)
-      setSelected(res.data)
+      const store = JSON.parse(localStorage.getItem('cm_reports') || '[]')
+      const one = store.find((x: any) => x.projectId === projectId)
+      setSelected(one?.full || null)
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || 'Failed to load result')
+      setError(e?.message || 'Failed to load result')
     }
   }
 
@@ -62,8 +63,8 @@ export default function Dashboard() {
               {items.map(r => (
                 <TableRow key={r.projectId} hover onClick={() => loadOne(r.projectId)} style={{ cursor: 'pointer' }}>
                   <TableCell>{new Date(r.createdAt * 1000).toLocaleString()}</TableCell>
-                  <TableCell>{r.filenames?.source}</TableCell>
-                  <TableCell>{r.filenames?.target}</TableCell>
+                  <TableCell>{(r as any).filenames?.source}</TableCell>
+                  <TableCell>{(r as any).filenames?.target}</TableCell>
                   <TableCell>
                     <Stack direction="row" spacing={1}>
                       <Chip size="small" label={`total ${r.summary?.total ?? 0}`} />

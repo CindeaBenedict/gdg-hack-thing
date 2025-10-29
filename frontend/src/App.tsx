@@ -3,7 +3,8 @@ import { AppBar, Box, Button, Container, Tab, Tabs, Toolbar, Typography } from '
 import Login from './components/Login'
 import Upload from './components/Upload'
 import Dashboard from './components/Dashboard'
-import { logout, onAuth } from './services/firebase'
+import { logout, onAuth, authDisabled } from './services/firebase'
+
 
 type View = 'upload' | 'dashboard'
 
@@ -32,7 +33,7 @@ export default function App() {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             ClauseMatch++
           </Typography>
-          <Button color="inherit" onClick={() => logout()}>Logout</Button>
+          <Button color="inherit" onClick={async () => { if (authDisabled) { setUser(null) } else { await logout() } }}>Logout</Button>
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ mt: 3 }}>

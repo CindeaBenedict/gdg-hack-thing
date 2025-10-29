@@ -14,20 +14,23 @@ export default async function handler(req, res) {
     let texts = []
     let names = []
     let kinds = []
+    let htmls = []
     if (ct.includes('multipart/form-data')) {
       const files = await readMultipart(req)
       for (const f of files) {
-        const { text, kind } = await extractTextFromFile(f.buffer, f.filename)
+        const { text, html, kind } = await extractTextFromFile(f.buffer, f.filename)
         logs.push(`Parsed ${f.filename} as ${kind} (${text.length} chars)`) 
         texts.push(text)
         names.push(f.filename)
         kinds.push(kind)
+        htmls.push(html)
       }
     } else {
       const body = await readJson(req)
       texts = Array.isArray(body?.texts) ? body.texts : []
       names = Array.isArray(body?.names) ? body.names : []
       kinds = texts.map(() => 'text')
+      htmls = texts.map((t) => `<pre>${escapeHtml(String(t||''))}</pre>`)
     }
     if (texts.length === 0) return res.status(400).json({ error: 'Provide at least one file' })
 
@@ -60,6 +63,7 @@ export default async function handler(req, res) {
       names = [`${baseName} [${langA}]`, `${baseName} [${langB}]`]
       kinds = ['derived', 'derived']
       texts = [arrA.join('\n'), arrB.join('\n')]
+      htmls = texts.map((t) => `<pre>${escapeHtml(t)}</pre>`)
     }
 
     // Align doc0 to each other doc using local similarity + LLM verify
@@ -116,7 +120,7 @@ export default async function handler(req, res) {
     // Summary from mismatches
     const rowsFlat = pairsAll.map(p => ({ similarity: p.similarity, isMismatch: p.isMismatch }))
     const summary = summarize(rowsFlat)
-    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs, inputs: { names, kinds, texts } })
+    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs, inputs: { names, kinds, texts, htmls } })
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'server error' })
   }
@@ -152,27 +156,42 @@ function readMultipart(req) {
 async function extractTextFromFile(buffer, filename) {
   const lower = (filename || '').toLowerCase()
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
-    const out = await mammoth.extractRawText({ buffer })
-    return { text: (out.value || '').trim(), kind: 'docx' }
+    const raw = await mammoth.extractRawText({ buffer })
+    const htmlRes = await mammoth.convertToHtml({ buffer })
+    return { text: (raw.value || '').trim(), html: htmlRes.value || '', kind: 'docx' }
   }
   if (lower.endsWith('.pdf')) {
     const out = await pdfParse(buffer)
-    return { text: (out.text || '').trim(), kind: 'pdf' }
+    const text = (out.text || '').trim()
+    const html = `<pre>${escapeHtml(text)}</pre>`
+    return { text, html, kind: 'pdf' }
   }
   if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
     const wb = XLSX.read(buffer, { type: 'buffer' })
     const parts = []
+    const rowsAll = []
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName]
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true })
       parts.push(`# ${sheetName}`)
+      rowsAll.push({ sheetName, rows })
       for (const row of rows) parts.push(String(row.map((c) => (c == null ? '' : c)).join('\t')))
     }
-    return { text: parts.join('\n'), kind: 'xlsx' }
+    const text = parts.join('\n')
+    let html = ''
+    for (const sh of rowsAll) {
+      html += `<h4>${escapeHtml(sh.sheetName)}</h4>`
+      html += '<table border="1" cellpadding="2" cellspacing="0">'
+      for (const r of sh.rows) {
+        html += '<tr>' + r.map((c) => `<td>${escapeHtml(c == null ? '' : String(c))}</td>`).join('') + '</tr>'
+      }
+      html += '</table>'
+    }
+    return { text, html, kind: 'xlsx' }
   }
   if (lower.endsWith('.json')) {
     const s = buffer.toString('utf8')
-    try { return { text: JSON.stringify(JSON.parse(s), null, 2), kind: 'json' } } catch { return { text: s, kind: 'json' } }
+    try { const pp = JSON.stringify(JSON.parse(s), null, 2); return { text: pp, html: `<pre>${escapeHtml(pp)}</pre>`, kind: 'json' } } catch { return { text: s, html: `<pre>${escapeHtml(s)}</pre>`, kind: 'json' } }
   }
   if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) {
     const zip = await JSZip.loadAsync(buffer)
@@ -187,10 +206,13 @@ async function extractTextFromFile(buffer, filename) {
       collectPptxText(json, texts)
       texts.push('')
     }
-    return { text: texts.join('\n').trim(), kind: 'pptx' }
+    const text = texts.join('\n').trim()
+    const html = `<pre>${escapeHtml(text)}</pre>`
+    return { text, html, kind: 'pptx' }
   }
   // Fallback treat as utf8 text
-  return { text: buffer.toString('utf8'), kind: 'txt' }
+  const txt = buffer.toString('utf8')
+  return { text: txt, html: `<pre>${escapeHtml(txt)}</pre>`, kind: 'txt' }
 }
 
 function collectPptxText(node, out) {
@@ -202,6 +224,10 @@ function collectPptxText(node, out) {
       collectPptxText(v, out)
     }
   }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
 function segment(text) {
