@@ -313,11 +313,12 @@ export default function Upload() {
                 <Stack spacing={0}>
                   {notes.map((n, idx) => {
                     // Determine status from suspects - if any high probability, it's a mismatch
-                    const maxSuspect = Math.max(...(n.suspects || []).map((s: any) => s.probability || 0))
+                    const maxSuspect = Math.max(0, ...(n.suspects || []).map((s: any) => s.probability || 0))
                     const status = maxSuspect > 0.6 ? 'mismatch' : 'review'
                     const bgColor = status === 'review' ? '#e8f5e9' : '#fff3e0'
                     // Get explanation from comment or reasoning
                     const explanation = n.issues?.[0]?.comment || n.issues?.[0]?.reasoning || n.message || 'Potential inconsistency'
+                    console.log('Row ' + n.index + ' status:', status, 'maxSuspect:', maxSuspect, 'suspects:', n.suspects, 'explanation:', explanation)
                     return (
                       <Box
                         key={n.index}

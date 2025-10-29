@@ -136,6 +136,17 @@ export default async function handler(req, res) {
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
+        // Add suspect for file 0 (base file)
+        const file0Mismatch = items.some(it => it.isMismatch)
+        if (file0Mismatch) {
+          // Compute average blame for file 0 across all comparisons
+          const avgBlame = items.reduce((sum, it) => {
+            const conf = Number(it.ai?.confidence || 0.6)
+            return sum + (it.ai?.status === 'MISMATCH' || it.isMismatch ? conf : 0.0)
+          }, 0) / Math.max(1, items.length)
+          suspects.push({ fileIndex: 0, probability: Math.round(Math.min(0.95, Math.max(0.05, avgBlame)) * 100) / 100 })
+        }
+        // Add suspects for other files
         for (const it of items) {
           const conf = Number(it.ai?.confidence || 0.6)
           const blame = it.ai?.status === 'MISMATCH' || it.isMismatch ? conf : 0.0
@@ -143,11 +154,12 @@ export default async function handler(req, res) {
         }
       }
       const issue = items.find(it => (it.ai?.issues || []).length)
-      // Normalize issues to generic structure if present
+      // Pass through all AI issue fields
       const issues = Array.isArray(issue?.ai?.issues) ? issue.ai.issues.map((x) => ({
+        ...x,
         type: x.type || 'entity',
         values: x.values || {},
-        comment: x.comment || 'Possible inconsistency'
+        comment: x.comment || x.reasoning || 'Possible inconsistency'
       })) : []
       boxes.push({ row, files, issues, suspects })
     }
