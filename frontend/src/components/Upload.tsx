@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Chip, Divider, LinearProgress, Paper, Stack, Typography, Accordion, AccordionSummary, AccordionDetails, IconButton } from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, LinearProgress, Paper, Stack, Typography, Accordion, AccordionSummary, AccordionDetails } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
-import SaveIcon from '@mui/icons-material/Save'
 import { jsPDF } from 'jspdf'
-import htmlDocx from 'html-docx-js/dist/html-docx'
 import api from '../services/api'
 
 export default function Upload() {
@@ -26,8 +24,8 @@ export default function Upload() {
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
 
   const onAnalyze = async () => {
-    if (files.length < 2) {
-      setError('Select at least two files')
+    if (files.length < 1) {
+      setError('Select at least one file')
       return
     }
     setError('')
@@ -151,15 +149,26 @@ export default function Upload() {
     setEditedTexts((prev) => prev.map((v, idx) => (idx === i ? text : v)))
   }
 
-  const downloadFile = (i: number) => {
+  const downloadFile = async (i: number) => {
     const name = (result?.inputs?.names?.[i] || `file${i+1}`)
     const kind = (result?.inputs?.kinds?.[i] || 'txt')
     if (kind === 'docx') {
-      const blob = htmlDocx.asBlob(editedHtmls[i] || escapeHtml(editedTexts[i] || ''))
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = name.endsWith('.docx') ? name : `${name}.docx`
-      a.click()
+      try {
+        const htmlDocx = await import('html-docx-js/dist/html-docx')
+        const htmlContent = editedHtmls[i] || escapeHtml(editedTexts[i] || '')
+        const blob = (htmlDocx as any).default?.asBlob ? (htmlDocx as any).default.asBlob(htmlContent) : (htmlDocx as any).asBlob?.(htmlContent) || new Blob([htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = name.endsWith('.docx') ? name : `${name}.docx`
+        a.click()
+      } catch (e) {
+        // Fallback to text download if DOCX export fails
+        const blob = new Blob([editedTexts[i] || ''], { type: 'text/plain;charset=utf-8' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = name.replace(/\.docx$/i, '.txt')
+        a.click()
+      }
       return
     }
     if (kind === 'pdf') {
