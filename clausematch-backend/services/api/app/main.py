@@ -1,7 +1,9 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from uuid import uuid4
 from .services import orchestrator_client
+from .pipeline.ingestion import parse_document
 
 app = FastAPI(title="ClauseMatch++ API")
 
@@ -11,9 +13,18 @@ def health():
 
 @app.post("/v1/analyze")
 async def analyze(en: UploadFile = File(...), de: UploadFile = File(...)):
-    en_text = (await en.read()).decode("utf-8", "ignore")
-    de_text = (await de.read()).decode("utf-8", "ignore")
+    # Persist temp files to support multi-format parsing
     job_id = str(uuid4())
+    tmp_dir = Path("/tmp")
+    en_path = tmp_dir / f"{job_id}_en_{en.filename}"
+    de_path = tmp_dir / f"{job_id}_de_{de.filename}"
+    en_bytes = await en.read()
+    de_bytes = await de.read()
+    en_path.write_bytes(en_bytes)
+    de_path.write_bytes(de_bytes)
+    # Parse to text
+    en_text = parse_document(en_path, "en")
+    de_text = parse_document(de_path, "de")
     orchestrator_client.enqueue(job_id, en_text, de_text)
     return {"job_id": job_id}
 
