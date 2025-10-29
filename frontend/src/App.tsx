@@ -33,7 +33,15 @@ export default function App() {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             ClauseMatch++
           </Typography>
-          <Button color="inherit" onClick={async () => { if (authDisabled) { setUser(null) } else { await logout() } }}>Logout</Button>
+          <Button color="inherit" onClick={async () => { 
+            if (authDisabled) { 
+              setUser(null)
+              window.location.reload()
+            } else { 
+              await logout()
+              setUser(null)
+            } 
+          }}>Logout</Button>
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ mt: 3 }}>

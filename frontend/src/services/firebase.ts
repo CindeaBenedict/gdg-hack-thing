@@ -26,17 +26,26 @@ const AUTH_DISABLED = (import.meta as any).env.VITE_DISABLE_AUTH === '1'
 export const authDisabled = AUTH_DISABLED
 
 export async function signInWithGoogle() {
-  if (AUTH_DISABLED) return
+  if (AUTH_DISABLED) {
+    window.location.reload()
+    return
+  }
   await signInWithPopup(auth, googleProvider)
 }
 
 export async function emailPasswordSignIn(email: string, password: string) {
-  if (AUTH_DISABLED) return
+  if (AUTH_DISABLED) {
+    window.location.reload()
+    return
+  }
   return signInWithEmailAndPassword(auth, email, password)
 }
 
 export async function emailPasswordSignUp(email: string, password: string) {
-  if (AUTH_DISABLED) return
+  if (AUTH_DISABLED) {
+    window.location.reload()
+    return
+  }
   return createUserWithEmailAndPassword(auth, email, password)
 }
 
