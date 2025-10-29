@@ -407,43 +407,41 @@ async function watsonxCheck(a, b) {
   const model = process.env.WML_MODEL_ID || 'meta-llama/llama-3-2-90b-vision-instruct'
   if (!key || !project) return { status: 'REVIEW', confidence: 0, issues: [] }
   const token = await iamToken(key)
-  const prompt = `You are a CRITICAL factual inconsistency detector for legal/regulatory documents.
+  const prompt = `You are a STRICT factual error detector. Compare paragraphs and return MATCH unless there is a CLEAR FACTUAL ERROR.
 
-IGNORE translation/language differences. ONLY flag TRUE SEMANTIC ERRORS:
-• Wrong numbers (75% vs 7.5%)
-• Wrong currencies (EUR vs USD)
-• Wrong article references (Art. 32 vs Art. 322)
-• Wrong amounts (135M vs 136M)
-• Wrong dates/years (2025 vs 2024)
-• Wrong percentages (10% vs 12%)
+### MATCH if:
+• Same numbers in both (e.g., "135 million" = "135 Mio" = "135 miljonu") ✅
+• Same percentages (e.g., "7.5%" = "7,5%") ✅
+• Same years/dates (e.g., "2025" in both) ✅
+• Same article numbers (e.g., "Art. 32" in both) ✅
+• Different words but IDENTICAL FACTS ✅
 
-### Task:
-Compare these paragraphs. If they say the SAME FACTS in different languages → MATCH.
-If there's a FACTUAL ERROR → extract the EXACT differing values.
+### MISMATCH ONLY if:
+• DIFFERENT numbers (75% ≠ 7.5%) ❌
+• DIFFERENT currencies (EUR ≠ USD) ❌
+• DIFFERENT article refs (Art. 32 ≠ Art. 322) ❌
+• DIFFERENT amounts (135M ≠ 136M) ❌
+• DIFFERENT years (2025 ≠ 2029) ❌
 
-### Output Format:
-MATCH (same facts):
-{ "status": "MATCH", "confidence": 0.0, "issues": [] }
+### Examples:
+A: "biodiversity target of 75 %" / B: "biodiversity target of 7.5 %"
+→ MISMATCH { values: { A:"75%", B:"7.5%" }, comment:"Biodiversity percentage differs" }
 
-MISMATCH (different facts):
-{
-  "status": "MISMATCH",
-  "confidence": 0.85,
-  "issues": [{
-    "type": "number|monetary|date|entity|article_ref",
-    "values": { "A": "<exact value in A>", "B": "<exact value in B>" },
-    "comment": "<what differs: e.g., 'Biodiversity: 75% vs 7.5%' or 'Currency: EUR vs USD'>"
-  }]
-}
+A: "EUR 520 million" / B: "520 miljonu EUR"
+→ MATCH (same amount, different language)
 
-### CRITICAL:
-• Extract 2-8 words max per value (e.g., "75 %" not full sentence)
-• If A="9 % provisioning for EUR 136M" and B="9 % provisioning for EUR 135M" → values: { A:"136M", B:"135M" }
-• Article refs: Extract "Art. 322" vs "Art. 32"
-• Currencies: Extract "EUR" vs "USD"
-• NO false positives - same meaning = MATCH
+A: "June 2028" / B: "June 2029"  
+→ MISMATCH { values: { A:"2028", B:"2029" }, comment:"End date differs" }
 
-Output JSON only. No text before/after.
+A: "Article 322" / B: "Article 32"
+→ MISMATCH { values: { A:"Art. 322", B:"Art. 32" }, comment:"Article number differs" }
+
+Output JSON:
+{ "status": "MATCH", "confidence": 0, "issues": [] }
+OR
+{ "status": "MISMATCH", "confidence": 0.9, "issues": [{ "type": "number", "values": { "A":"...", "B":"..." }, "comment":"..." }] }
+
+NO text outside JSON.
 
 Input A: ` + a + `
 Input B: ` + b + `
