@@ -25,9 +25,9 @@ export default function Upload() {
     setLogs((l) => [...l, `Starting analysis for ${files.length} files`])
     try {
       const sel = files.slice(0, 2)
-      const texts = await Promise.all(sel.map(f => f.text()))
-      const names = sel.map(f => f.name)
-      const res = await api.post('/analyze', { texts, names })
+      const fd = new FormData()
+      sel.forEach((f) => fd.append('files', f, f.name))
+      const res = await api.post('/analyze', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setResult(res.data)
       const boxes = (res.data?.boxes || []) as any[]
       const pretty = boxes.map((b) => ({

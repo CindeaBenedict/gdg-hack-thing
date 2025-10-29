@@ -1,9 +1,30 @@
+import Busboy from 'busboy'
+import mammoth from 'mammoth'
+import pdfParse from 'pdf-parse'
+import * as XLSX from 'xlsx'
+import JSZip from 'jszip'
+import { XMLParser } from 'fast-xml-parser'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   try {
-    const body = await readJson(req)
-    const texts = Array.isArray(body?.texts) ? body.texts : []
-    const names = Array.isArray(body?.names) ? body.names : []
+    const logs = []
+    const ct = req.headers['content-type'] || ''
+    let texts = []
+    let names = []
+    if (ct.includes('multipart/form-data')) {
+      const files = await readMultipart(req)
+      for (const f of files) {
+        const { text, kind } = await extractTextFromFile(f.buffer, f.filename)
+        logs.push(`Parsed ${f.filename} as ${kind} (${text.length} chars)`) 
+        texts.push(text)
+        names.push(f.filename)
+      }
+    } else {
+      const body = await readJson(req)
+      texts = Array.isArray(body?.texts) ? body.texts : []
+      names = Array.isArray(body?.names) ? body.names : []
+    }
     if (texts.length < 2) return res.status(400).json({ error: 'Provide texts[2]' })
 
     // Segment all inputs
@@ -63,7 +84,7 @@ export default async function handler(req, res) {
     // Summary from mismatches
     const rowsFlat = pairsAll.map(p => ({ similarity: p.similarity, isMismatch: p.isMismatch }))
     const summary = summarize(rowsFlat)
-    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs: [] })
+    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs })
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'server error' })
   }
@@ -78,6 +99,77 @@ async function readJson(req) {
     })
     req.on('error', reject)
   })
+}
+
+function readMultipart(req) {
+  return new Promise((resolve, reject) => {
+    const busboy = Busboy({ headers: req.headers })
+    const files = []
+    busboy.on('file', (name, file, info) => {
+      const { filename } = info
+      const chunks = []
+      file.on('data', (d) => chunks.push(d))
+      file.on('end', () => files.push({ filename, buffer: Buffer.concat(chunks) }))
+    })
+    busboy.on('error', reject)
+    busboy.on('finish', () => resolve(files))
+    req.pipe(busboy)
+  })
+}
+
+async function extractTextFromFile(buffer, filename) {
+  const lower = (filename || '').toLowerCase()
+  if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
+    const out = await mammoth.extractRawText({ buffer })
+    return { text: (out.value || '').trim(), kind: 'docx' }
+  }
+  if (lower.endsWith('.pdf')) {
+    const out = await pdfParse(buffer)
+    return { text: (out.text || '').trim(), kind: 'pdf' }
+  }
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+    const wb = XLSX.read(buffer, { type: 'buffer' })
+    const parts = []
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName]
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true })
+      parts.push(`# ${sheetName}`)
+      for (const row of rows) parts.push(String(row.map((c) => (c == null ? '' : c)).join('\t')))
+    }
+    return { text: parts.join('\n'), kind: 'xlsx' }
+  }
+  if (lower.endsWith('.json')) {
+    const s = buffer.toString('utf8')
+    try { return { text: JSON.stringify(JSON.parse(s), null, 2), kind: 'json' } } catch { return { text: s, kind: 'json' } }
+  }
+  if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) {
+    const zip = await JSZip.loadAsync(buffer)
+    const parser = new XMLParser({ ignoreAttributes: false })
+    const texts = []
+    const slideFiles = Object.keys(zip.files).filter(p => p.startsWith('ppt/slides/slide') && p.endsWith('.xml'))
+    slideFiles.sort()
+    for (const p of slideFiles) {
+      const xml = await zip.file(p).async('string')
+      const json = parser.parse(xml)
+      // Traverse for a:t text nodes
+      collectPptxText(json, texts)
+      texts.push('')
+    }
+    return { text: texts.join('\n').trim(), kind: 'pptx' }
+  }
+  // Fallback treat as utf8 text
+  return { text: buffer.toString('utf8'), kind: 'txt' }
+}
+
+function collectPptxText(node, out) {
+  if (!node || typeof node !== 'object') return
+  for (const [k, v] of Object.entries(node)) {
+    if (k.endsWith(':t') || k === 'a:t') {
+      if (typeof v === 'string') out.push(v)
+    } else if (typeof v === 'object') {
+      collectPptxText(v, out)
+    }
+  }
 }
 
 function segment(text) {
