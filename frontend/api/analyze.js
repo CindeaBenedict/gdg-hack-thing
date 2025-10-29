@@ -83,7 +83,18 @@ export default async function handler(req, res) {
         const t = oth[j] || ''
         const baseSim = semScore || similarity(s, t)
         
-        // Try RAG cache first (with timeout protection)
+        // Extract numbers, dates, monetary values for focused comparison
+        const extractFactualData = (text) => {
+          const numbers = (text.match(/\d+[.,]?\d*/g) || []).map(n => n.replace(',', '.'))
+          const years = (text.match(/20\d{2}/g) || [])
+          const currencies = (text.match(/EUR|€|\$|USD/gi) || [])
+          return { numbers, years, currencies, hasFactual: numbers.length > 0 || years.length > 0 }
+        }
+        
+        const factsA = extractFactualData(s)
+        const factsB = extractFactualData(t)
+        
+        // Only call AI if there's factual data to check
         let verdict
         const useRag = process.env.ENABLE_RAG === '1'
         if (useRag) {
@@ -105,12 +116,19 @@ export default async function handler(req, res) {
             cacheMisses++
           }
         } else {
-          verdict = await watsonxCheck(s, t)
+          // ACCURACY MODE: Skip AI call if no factual data or if texts are too different semantically
+          if (baseSim < 0.85 || (!factsA.hasFactual && !factsB.hasFactual)) {
+            verdict = { status: 'MATCH', confidence: 0, issues: [] }
+            logs.push('Skipped row ' + i + ' vs ' + j + ' (low semantic sim or no factual data)')
+          } else {
+            verdict = await watsonxCheck(s, t)
+          }
           cacheMisses++
         }
         
         const aiMismatch = verdict?.status && verdict.status !== 'MATCH'
-        pairsAll.push({ index: i, docA: 0, rowA: i, textA: s, docB: d, rowB: j, textB: t, similarity: baseSim, ai: verdict, isMismatch: aiMismatch || baseSim < 0.6 })
+        // ACCURACY: Only flag as mismatch if AI explicitly says MISMATCH or REVIEW
+        pairsAll.push({ index: i, docA: 0, rowA: i, textA: s, docB: d, rowB: j, textB: t, similarity: baseSim, ai: verdict, isMismatch: aiMismatch })
       }
     }
     
@@ -152,24 +170,24 @@ export default async function handler(req, res) {
           // Compute embeddings for all texts
           embeddings = await Promise.all(allTexts.map(t => embed(t)))
           
-          // Group by VERY HIGH semantic similarity > 0.92 (overkill semantics)
+          // Group by ULTRA HIGH semantic similarity > 0.97 (ACCURACY IS KING - almost perfect match only)
           for (let i = 0; i < allTexts.length; i++) {
             let found = false
             for (const g of groups) {
               const sim = cosineSimilarity(embeddings[i], g.embeddings[0])
-              console.log('  Comparing file ' + allIndices[i] + ' with group[0] file ' + g.indices[0] + ': sim=' + sim.toFixed(3))
-              if (sim > 0.92) {
+              console.log('  Comparing file ' + allIndices[i] + ' with group[0] file ' + g.indices[0] + ': sim=' + sim.toFixed(4))
+              if (sim > 0.97) {
                 g.indices.push(allIndices[i])
                 g.texts.push(allTexts[i])
                 g.embeddings.push(embeddings[i])
                 found = true
-                console.log('    -> Grouped together (sim > 0.92)')
+                console.log('    ✓ GROUPED (sim=' + sim.toFixed(4) + ' > 0.97) - virtually identical meaning')
                 break
               }
             }
             if (!found) {
               groups.push({ indices: [allIndices[i]], texts: [allTexts[i]], embeddings: [embeddings[i]] })
-              console.log('  File ' + allIndices[i] + ' forms new group')
+              console.log('  File ' + allIndices[i] + ' → SEPARATE GROUP (no match > 0.97)')
             }
           }
         } catch (e) {
@@ -377,7 +395,7 @@ async function semanticAlign(a, b) {
     
     for (let i = 0; i < a.length; i++) {
       let bestJ = -1
-      let bestScore = 0.92 // VERY HIGH semantic similarity threshold - only match truly equivalent clauses
+      let bestScore = 0.95 // ULTRA HIGH threshold - accuracy is king
       
       for (let j = 0; j < b.length; j++) {
         if (usedB.has(j)) continue
@@ -388,13 +406,14 @@ async function semanticAlign(a, b) {
         }
       }
       
-      if (bestJ >= 0) {
+      // Only accept if VERY high confidence
+      if (bestJ >= 0 && bestScore >= 0.95) {
         usedB.add(bestJ)
         out.push([i, bestJ, bestScore])
       }
     }
     
-    console.log('Semantic align: matched ' + out.length + '/' + a.length + ' segments (threshold 0.92)')
+    console.log('Semantic align: matched ' + out.length + '/' + a.length + ' segments (threshold 0.95, accuracy-first mode)')
     
     return out
   } catch (e) {
