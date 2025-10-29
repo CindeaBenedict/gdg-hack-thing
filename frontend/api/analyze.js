@@ -5,7 +5,6 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { XMLParser } from 'fast-xml-parser'
 import { franc } from 'franc-min'
-import { searchSimilar, storePair, getStats, embed } from './rag.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
