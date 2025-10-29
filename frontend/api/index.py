@@ -1,5 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from typing import Dict, Any, List, Tuple
+import os, json, time
+import requests
 import uuid
 import time
 
@@ -56,6 +58,56 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"total": total, "mismatches": mismatches, "avgSimilarity": round(avg, 3)}
 
 
+def _iam_token() -> str:
+    api_key = os.getenv("WML_API_KEY")
+    if not api_key:
+        return ""
+    r = requests.post(
+        "https://iam.cloud.ibm.com/identity/token",
+        data={"grant_type": "urn:ibm:params:oauth:grant-type:apikey", "apikey": api_key},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json().get("access_token", "")
+
+
+def watsonx_check(a_txt: str, b_txt: str) -> Dict[str, Any]:
+    project_id = os.getenv("WML_PROJECT_ID")
+    base_url = os.getenv("WML_API_URL", "https://us-south.ml.cloud.ibm.com")
+    model_id = os.getenv("WML_MODEL_ID", "ibm/granite-3-2-8b-instruct")
+    token = _iam_token()
+    if not (project_id and token):
+        return {"status": "REVIEW", "confidence": 0.0, "issues": []}
+    prompt = (
+        "You are an AI consistency auditor. Compare multiple multilingual or multi-format documents for factual consistency.\n"
+        "Detect mismatches in numbers, dates, monetary amounts, or entities. If most versions agree and one differs, mark it as suspect.\n"
+        "Output only a valid JSON object using this schema:\n"
+        "{\\\"status\\\": \\\"MATCH|MISMATCH|REVIEW\\\", \\\"confidence\\\": 0.0-1.0, \\\"issues\\\":[{\\\"type\\\":\\\"number|date|monetary|entity\\\", \\\"comment\\\": \\\"brief reason\\\"}]}\n"
+        f"Input: EN: {a_txt}\nDE: {b_txt}\n\nOutput:"
+    )
+    body = {
+        "input": prompt,
+        "parameters": {"decoding_method": "greedy", "max_new_tokens": 200, "min_new_tokens": 0, "repetition_penalty": 1},
+        "model_id": model_id,
+        "project_id": project_id,
+    }
+    r = requests.post(
+        f"{base_url}/ml/v1/text/generation?version=2023-05-29",
+        headers={"Accept": "application/json", "Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        json=body,
+        timeout=60,
+    )
+    if r.status_code != 200:
+        return {"status": "REVIEW", "confidence": 0.0, "issues": []}
+    out = r.json()
+    text = out.get("results", [{}])[0].get("generated_text", "{}")
+    try:
+        return json.loads(text)
+    except Exception:
+        return {"status": "REVIEW", "confidence": 0.0, "issues": []}
+
+
 @app.post("/analyze")
 async def analyze(source: UploadFile = File(...), target: UploadFile = File(...)):
     src = (await source.read()).decode("utf-8", "ignore")
@@ -65,7 +117,9 @@ async def analyze(source: UploadFile = File(...), target: UploadFile = File(...)
     rows: List[Dict[str, Any]] = []
     for i, s, t in pairs:
         sim = round(similarity(s, t), 3)
-        rows.append({"index": i, "source": s, "target": t, "similarity": sim, "isMismatch": sim < 0.6})
+        verdict = watsonx_check(s, t) if os.getenv("WML_API_KEY") else {"issues": []}
+        ai_mismatch = bool(verdict.get("issues"))
+        rows.append({"index": i, "source": s, "target": t, "similarity": sim, "isMismatch": ai_mismatch or sim < 0.6, "ai": verdict})
     project_id = str(uuid.uuid4())
     data = {
         "projectId": project_id,
