@@ -82,48 +82,9 @@ export default async function handler(req, res) {
         const t = oth[j] || ''
         const baseSim = semScore || similarity(s, t)
         
-        // Extract numbers, dates, monetary values for focused comparison
-        const extractFactualData = (text) => {
-          const numbers = (text.match(/\d+[.,]?\d*/g) || []).map(n => n.replace(',', '.'))
-          const years = (text.match(/20\d{2}/g) || [])
-          const currencies = (text.match(/EUR|€|\$|USD/gi) || [])
-          return { numbers, years, currencies, hasFactual: numbers.length > 0 || years.length > 0 }
-        }
-        
-        const factsA = extractFactualData(s)
-        const factsB = extractFactualData(t)
-        
-        // Only call AI if there's factual data to check
-        let verdict
-        const useRag = false // DISABLED - causes cache errors on Vercel
-        if (useRag) {
-          try {
-            const cached = await Promise.race([
-              searchSimilar(s, t, 0.95),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('RAG timeout')), 5000))
-            ])
-            if (cached.hit) {
-              verdict = cached.cached
-              cacheHits++
-            } else {
-              verdict = await watsonxCheck(s, t)
-              cacheMisses++
-              storePair(s, t, verdict).catch(() => {}) // fire and forget
-            }
-          } catch (e) {
-            verdict = await watsonxCheck(s, t)
-            cacheMisses++
-          }
-        } else {
-          // ACCURACY MODE: Skip AI call if no factual data or if texts are too different semantically
-          if (baseSim < 0.85 || (!factsA.hasFactual && !factsB.hasFactual)) {
-            verdict = { status: 'MATCH', confidence: 0, issues: [] }
-            logs.push('Skipped row ' + i + ' vs ' + j + ' (low semantic sim or no factual data)')
-          } else {
-            verdict = await watsonxCheck(s, t)
-          }
-          cacheMisses++
-        }
+        // PURE AI MODE: Always call watsonx for every paragraph pair
+        let verdict = await watsonxCheck(s, t)
+        cacheMisses++
         
         const aiMismatch = verdict?.status && verdict.status !== 'MATCH'
         // ACCURACY: Only flag as mismatch if AI explicitly says MISMATCH or REVIEW
@@ -262,7 +223,18 @@ async function extractTextFromFile(buffer, filename) {
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
     const raw = await mammoth.extractRawText({ buffer })
     const htmlRes = await mammoth.convertToHtml({ buffer })
-    return { text: (raw.value || '').trim(), html: htmlRes.value || '', kind: 'docx' }
+    
+    // Fix paragraph breaks - mammoth splits on every <p> tag
+    // We need to join lines that belong together and preserve only real paragraph breaks
+    let text = (raw.value || '').trim()
+    
+    // Replace single newlines with spaces (join broken lines)
+    // But preserve double newlines (paragraph breaks)
+    text = text.replace(/\n(?!\n)/g, ' ')
+    // Normalize multiple newlines to double newline
+    text = text.replace(/\n{3,}/g, '\n\n')
+    
+    return { text, html: htmlRes.value || '', kind: 'docx' }
   }
   if (lower.endsWith('.pdf')) {
     const out = await pdfParse(buffer)
@@ -336,37 +308,14 @@ function escapeHtml(s) {
 
 function segment(text) {
   if (!text) return []
-  // PARAGRAPH-LEVEL segmentation for better AI accuracy
-  const paragraphs = []
-  let currentPara = []
   
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) {
-      // Empty line = paragraph break
-      if (currentPara.length > 0) {
-        paragraphs.push(currentPara.join(' '))
-        currentPara = []
-      }
-    } else {
-      currentPara.push(trimmed)
-    }
-  }
+  // Split ONLY on double newlines (paragraph breaks)
+  // Single newlines have already been replaced with spaces in extractTextFromFile
+  const paragraphs = text.split('\n\n')
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
   
-  // Add last paragraph
-  if (currentPara.length > 0) {
-    paragraphs.push(currentPara.join(' '))
-  }
-  
-  // If no paragraphs found, fall back to sentence splitting
-  if (paragraphs.length === 0) {
-    for (const line of text.split('\n')) {
-      for (const p of line.replace(/\?|!/g, '.').split('.')) {
-        const s = p.trim()
-        if (s) paragraphs.push(s)
-      }
-    }
-  }
+  console.log('Segmented into ' + paragraphs.length + ' paragraphs')
   
   return paragraphs
 }
