@@ -4,6 +4,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
 import { jsPDF } from 'jspdf'
+import ReactQuill from 'react-quill'
+import 'react-quill/dist/quill.snow.css'
 import api from '../services/api'
 
 export default function Upload() {
@@ -152,14 +154,14 @@ export default function Upload() {
   const downloadFile = async (i: number) => {
       const name = (result?.inputs?.names?.[i] || 'file' + (i + 1))
     const kind = (result?.inputs?.kinds?.[i] || 'txt')
-    if (kind === 'docx') {
+    if (kind === 'docx' || kind === 'xlsx') {
       // Download as HTML file to preserve formatting
       const htmlContent = editedHtmls[i] || ('<pre>' + escapeHtml(editedTexts[i] || '') + '</pre>')
-      const fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + name + '</title></head><body>' + htmlContent + '</body></html>'
+      const fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + name + '</title><style>body{font-family:Arial,sans-serif;margin:20px;} table{border-collapse:collapse;width:100%;} td,th{border:1px solid #ddd;padding:8px;text-align:left;} h4{color:#333;}</style></head><body>' + htmlContent + '</body></html>'
       const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' })
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = name.replace(/\.docx$/i, '.html')
+      a.download = name.replace(/\.(docx|xlsx)$/i, '.html')
       a.click()
       return
     }
@@ -244,43 +246,52 @@ export default function Upload() {
                         <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => downloadFile(i)}>Download</Button>
                       </Stack>
                       {editable[i] ? (
-                        result.inputs.kinds?.[i] === 'docx' && editedHtmls[i] && editedHtmls[i].includes('<') ? (
-                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto' }}>
-                            <div
-                              contentEditable
-                              suppressContentEditableWarning
-                              onInput={(e) => onHtmlChange(i, (e.target as HTMLDivElement).innerHTML)}
-                              dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }}
-                              style={{ minHeight: 200, fontSize: 14, lineHeight: 1.6 }}
+                        (result.inputs.kinds?.[i] === 'docx' || result.inputs.kinds?.[i] === 'xlsx') && editedHtmls[i] && editedHtmls[i].includes('<') ? (
+                          <Box sx={{ border: '1px solid #ccc', borderRadius: 1, overflow: 'hidden' }}>
+                            <ReactQuill
+                              value={editedHtmls[i] || ''}
+                              onChange={(html) => onHtmlChange(i, html)}
+                              style={{ height: 300, marginBottom: 42 }}
+                              theme="snow"
                             />
-                          </Paper>
+                          </Box>
                         ) : (
                           <textarea
                             value={editedTexts[i] || ''}
                             onChange={(e) => onTextChange(i, e.target.value)}
-                            style={{ width: '100%', height: 300, fontFamily: 'monospace', fontSize: 12, padding: '8px' }}
+                            style={{ width: '100%', height: 300, fontFamily: 'monospace', fontSize: 12, padding: '8px', border: '1px solid #ccc', borderRadius: 4 }}
                           />
                         )
                       ) : (
-                        <Paper variant="outlined" sx={{ p: 1, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
-                          {rows.map((line, ri) => (
-                            <div
-                              key={ri}
-                              ref={(el) => {
-                                if (!rowRefs.current[i]) rowRefs.current[i] = []
-                                rowRefs.current[i][ri] = el
-                              }}
-                              style={{
-                                backgroundColor: highlightMap[i] === ri ? '#fff59d' : 'transparent',
-                                padding: '2px 4px',
-                                borderRadius: 4
-                              }}
-                            >
-                              <span style={{ color: '#888' }}>{ri.toString().padStart(3, '0')}: </span>
-                              {line}
-                            </div>
-                          ))}
-                        </Paper>
+                        result.inputs.kinds?.[i] === 'xlsx' && editedHtmls[i] && editedHtmls[i].includes('<table') ? (
+                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto' }}>
+                            <div dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }} style={{ fontSize: 12 }} />
+                          </Paper>
+                        ) : result.inputs.kinds?.[i] === 'docx' && editedHtmls[i] && editedHtmls[i].includes('<') ? (
+                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto', fontSize: 14, lineHeight: 1.6 }}>
+                            <div dangerouslySetInnerHTML={{ __html: editedHtmls[i] || '' }} />
+                          </Paper>
+                        ) : (
+                          <Paper variant="outlined" sx={{ p: 1, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
+                            {rows.map((line, ri) => (
+                              <div
+                                key={ri}
+                                ref={(el) => {
+                                  if (!rowRefs.current[i]) rowRefs.current[i] = []
+                                  rowRefs.current[i][ri] = el
+                                }}
+                                style={{
+                                  backgroundColor: highlightMap[i] === ri ? '#fff59d' : 'transparent',
+                                  padding: '2px 4px',
+                                  borderRadius: 4
+                                }}
+                              >
+                                <span style={{ color: '#888' }}>{ri.toString().padStart(3, '0')}: </span>
+                                {line}
+                              </div>
+                            ))}
+                          </Paper>
+                        )
                       )}
                     </Stack>
                   </Paper>

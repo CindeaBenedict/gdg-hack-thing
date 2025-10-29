@@ -19,7 +19,7 @@ export default async function handler(req, res) {
       const files = await readMultipart(req)
       for (const f of files) {
         const { text, html, kind } = await extractTextFromFile(f.buffer, f.filename)
-        logs.push(`Parsed ${f.filename} as ${kind} (${text.length} chars)`) 
+        logs.push('Parsed ' + f.filename + ' as ' + kind + ' (' + text.length + ' chars)') 
         texts.push(text)
         names.push(f.filename)
         kinds.push(kind)
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       texts = Array.isArray(body?.texts) ? body.texts : []
       names = Array.isArray(body?.names) ? body.names : []
       kinds = texts.map(() => 'text')
-      htmls = texts.map((t) => `<pre>${escapeHtml(String(t||''))}</pre>`)
+      htmls = texts.map((t) => '<pre>' + escapeHtml(String(t||'')) + '</pre>')
     }
     if (texts.length === 0) return res.status(400).json({ error: 'Provide at least one file' })
 
@@ -60,10 +60,10 @@ export default async function handler(req, res) {
       docs = [arrA, arrB]
       // Update names/kinds to reflect derived streams
       const baseName = names[0] || 'file'
-      names = [`${baseName} [${langA}]`, `${baseName} [${langB}]`]
+      names = [baseName + ' [' + langA + ']', baseName + ' [' + langB + ']']
       kinds = ['derived', 'derived']
       texts = [arrA.join('\n'), arrB.join('\n')]
-      htmls = texts.map((t) => `<pre>${escapeHtml(t)}</pre>`)
+      htmls = texts.map((t) => '<pre>' + escapeHtml(t) + '</pre>')
     }
 
     // Align doc0 to each other doc using local similarity + LLM verify
@@ -95,9 +95,9 @@ export default async function handler(req, res) {
       const suspects = []
       let anyMismatch = false
       // file 0 always present
-      files.push({ fileIndex: 0, fileName: names[0] || `file0`, row, text: items[0]?.textA || '' })
+      files.push({ fileIndex: 0, fileName: names[0] || 'file0', row, text: items[0]?.textA || '' })
       for (const it of items) {
-        files.push({ fileIndex: it.docB, fileName: names[it.docB] || `file${it.docB}`, row: it.rowB, text: it.textB })
+        files.push({ fileIndex: it.docB, fileName: names[it.docB] || 'file' + it.docB, row: it.rowB, text: it.textB })
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
@@ -163,7 +163,7 @@ async function extractTextFromFile(buffer, filename) {
   if (lower.endsWith('.pdf')) {
     const out = await pdfParse(buffer)
     const text = (out.text || '').trim()
-    const html = `<pre>${escapeHtml(text)}</pre>`
+    const html = '<pre>' + escapeHtml(text) + '</pre>'
     return { text, html, kind: 'pdf' }
   }
   if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
@@ -173,17 +173,17 @@ async function extractTextFromFile(buffer, filename) {
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName]
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true })
-      parts.push(`# ${sheetName}`)
+      parts.push('# ' + sheetName)
       rowsAll.push({ sheetName, rows })
       for (const row of rows) parts.push(String(row.map((c) => (c == null ? '' : c)).join('\t')))
     }
     const text = parts.join('\n')
     let html = ''
     for (const sh of rowsAll) {
-      html += `<h4>${escapeHtml(sh.sheetName)}</h4>`
-      html += '<table border="1" cellpadding="2" cellspacing="0">'
+      html += '<h4>' + escapeHtml(sh.sheetName) + '</h4>'
+      html += '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:12px;">'
       for (const r of sh.rows) {
-        html += '<tr>' + r.map((c) => `<td>${escapeHtml(c == null ? '' : String(c))}</td>`).join('') + '</tr>'
+        html += '<tr>' + r.map((c) => '<td>' + escapeHtml(c == null ? '' : String(c)) + '</td>').join('') + '</tr>'
       }
       html += '</table>'
     }
@@ -191,7 +191,7 @@ async function extractTextFromFile(buffer, filename) {
   }
   if (lower.endsWith('.json')) {
     const s = buffer.toString('utf8')
-    try { const pp = JSON.stringify(JSON.parse(s), null, 2); return { text: pp, html: `<pre>${escapeHtml(pp)}</pre>`, kind: 'json' } } catch { return { text: s, html: `<pre>${escapeHtml(s)}</pre>`, kind: 'json' } }
+    try { const pp = JSON.stringify(JSON.parse(s), null, 2); return { text: pp, html: '<pre>' + escapeHtml(pp) + '</pre>', kind: 'json' } } catch { return { text: s, html: '<pre>' + escapeHtml(s) + '</pre>', kind: 'json' } }
   }
   if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) {
     const zip = await JSZip.loadAsync(buffer)
@@ -207,12 +207,12 @@ async function extractTextFromFile(buffer, filename) {
       texts.push('')
     }
     const text = texts.join('\n').trim()
-    const html = `<pre>${escapeHtml(text)}</pre>`
+    const html = '<pre>' + escapeHtml(text) + '</pre>'
     return { text, html, kind: 'pptx' }
   }
   // Fallback treat as utf8 text
   const txt = buffer.toString('utf8')
-  return { text: txt, html: `<pre>${escapeHtml(txt)}</pre>`, kind: 'txt' }
+  return { text: txt, html: '<pre>' + escapeHtml(txt) + '</pre>', kind: 'txt' }
 }
 
 function collectPptxText(node, out) {
@@ -392,13 +392,13 @@ Overall confidence = mean(semantic_similarity, format_consistency, 1 - stddev(no
 - Maintain the tone and structure of each language in "updated_sentences".
 - End immediately after the final bracket.
 
-Input A: ${a}
-Input B: ${b}
+Input A: ` + a + `
+Input B: ` + b + `
 
 Output:`
-  const r = await fetch(`${base}/ml/v1/text/generation?version=2023-05-29`, {
+  const r = await fetch(base + '/ml/v1/text/generation?version=2023-05-29', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({
       input: prompt,
       parameters: {
