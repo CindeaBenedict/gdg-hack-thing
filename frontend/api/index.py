@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import os, json, time
 import requests
 import uuid
@@ -109,9 +109,33 @@ def watsonx_check(a_txt: str, b_txt: str) -> Dict[str, Any]:
 
 
 @app.post("/analyze")
-async def analyze(source: UploadFile = File(...), target: UploadFile = File(...)):
-    src = (await source.read()).decode("utf-8", "ignore")
-    tgt = (await target.read()).decode("utf-8", "ignore")
+async def analyze(
+    files: Optional[List[UploadFile]] = File(None),
+    source: Optional[UploadFile] = File(None),
+    target: Optional[UploadFile] = File(None),
+):
+    logs: List[str] = []
+    texts: List[Tuple[str, str]] = []
+    names: List[str] = []
+
+    if files and len(files) >= 2:
+        logs.append(f"received {len(files)} files; comparing first two")
+        a, b = files[0], files[1]
+        src = (await a.read()).decode("utf-8", "ignore")
+        tgt = (await b.read()).decode("utf-8", "ignore")
+        texts.append((src, tgt))
+        names = [a.filename, b.filename]
+    elif source and target:
+        logs.append("received source/target; comparing pair")
+        src = (await source.read()).decode("utf-8", "ignore")
+        tgt = (await target.read()).decode("utf-8", "ignore")
+        texts.append((src, tgt))
+        names = [source.filename, target.filename]
+    else:
+        raise HTTPException(status_code=400, detail="Provide at least two files under 'files' or 'source'/'target'.")
+
+    # process first pair for demo
+    src, tgt = texts[0]
     s_segs, t_segs = segment(src), segment(tgt)
     pairs = align(s_segs, t_segs)
     rows: List[Dict[str, Any]] = []
@@ -120,13 +144,15 @@ async def analyze(source: UploadFile = File(...), target: UploadFile = File(...)
         verdict = watsonx_check(s, t) if os.getenv("WML_API_KEY") else {"issues": []}
         ai_mismatch = bool(verdict.get("issues"))
         rows.append({"index": i, "source": s, "target": t, "similarity": sim, "isMismatch": ai_mismatch or sim < 0.6, "ai": verdict})
+
     project_id = str(uuid.uuid4())
     data = {
         "projectId": project_id,
         "createdAt": int(time.time()),
-        "filenames": {"source": source.filename, "target": target.filename},
+        "filenames": {"a": names[0], "b": names[1]} if len(names) == 2 else {},
         "summary": summarize(rows),
         "pairs": rows,
+        "logs": logs,
     }
     REPORTS[project_id] = data
     return data
