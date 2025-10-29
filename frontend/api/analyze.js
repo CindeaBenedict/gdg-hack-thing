@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { XMLParser } from 'fast-xml-parser'
 import { franc } from 'franc-min'
-import { searchSimilar, storePair, getStats } from './rag.js'
+import { searchSimilar, storePair, getStats, embed } from './rag.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -75,11 +75,13 @@ export default async function handler(req, res) {
     for (let d = 1; d < docs.length; d++) {
       const ref = docs[0]
       const oth = docs[d]
-      const mapping = greedyAlign(ref, oth)
-      for (const [i, j] of mapping) {
+      const mapping = await semanticAlign(ref, oth)
+      logs.push('Aligned doc0 vs doc' + d + ': ' + mapping.length + ' semantic pairs')
+      for (const pair of mapping) {
+        const [i, j, semScore] = pair.length === 3 ? pair : [pair[0], pair[1], null]
         const s = ref[i] || ''
         const t = oth[j] || ''
-        const baseSim = similarity(s, t)
+        const baseSim = semScore || similarity(s, t)
         
         // Try RAG cache first (with timeout protection)
         let verdict
@@ -330,8 +332,52 @@ function align(a, b) {
   return out
 }
 
-function greedyAlign(a, b) {
-  // For each i in a, pick j in [i-2,i+2] maximizing lexical similarity
+async function semanticAlign(a, b) {
+  // Semantic cross-language alignment using embeddings
+  // For each segment in a, find best match in b by cosine similarity
+  const useSemanticAlign = process.env.ENABLE_SEMANTIC_ALIGN === '1'
+  
+  if (!useSemanticAlign) {
+    // Fallback to greedy alignment
+    return greedyAlignFallback(a, b)
+  }
+  
+  try {
+    // Compute embeddings for all segments
+    const embA = await Promise.all(a.map(s => embed(s)))
+    const embB = await Promise.all(b.map(s => embed(s)))
+    
+    const out = []
+    const usedB = new Set()
+    
+    for (let i = 0; i < a.length; i++) {
+      let bestJ = -1
+      let bestScore = 0.75 // Minimum semantic similarity threshold
+      
+      for (let j = 0; j < b.length; j++) {
+        if (usedB.has(j)) continue
+        const score = cosineSimilarity(embA[i], embB[j])
+        if (score > bestScore) {
+          bestScore = score
+          bestJ = j
+        }
+      }
+      
+      if (bestJ >= 0) {
+        usedB.add(bestJ)
+        out.push([i, bestJ, bestScore])
+      }
+    }
+    
+    return out
+  } catch (e) {
+    console.error('Semantic align error:', e)
+    return greedyAlignFallback(a, b)
+  }
+}
+
+function greedyAlignFallback(a, b) {
+  // Lexical similarity fallback (original logic)
   const out = []
   for (let i = 0; i < a.length; i++) {
     let bestJ = Math.min(i, b.length - 1)
@@ -345,6 +391,16 @@ function greedyAlign(a, b) {
     out.push([i, Math.max(0, Math.min(bestJ, b.length - 1))])
   }
   return out
+}
+
+function cosineSimilarity(a, b) {
+  let dot = 0, magA = 0, magB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    magA += a[i] * a[i]
+    magB += b[i] * b[i]
+  }
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB))
 }
 
 function similarity(a, b) {
