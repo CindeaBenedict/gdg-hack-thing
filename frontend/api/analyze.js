@@ -142,6 +142,8 @@ export default async function handler(req, res) {
         const allTexts = [items[0]?.textA || '', ...items.map(it => it.textB || '')]
         const allIndices = [0, ...items.map(it => it.docB)]
         
+        console.log('Row ' + row + ' texts:', allTexts.map((t, i) => allIndices[i] + ':' + t.substring(0, 50)))
+        
         // Count occurrences of similar texts (group by similarity > 0.7)
         const groups = []
         for (let i = 0; i < allTexts.length; i++) {
@@ -159,6 +161,8 @@ export default async function handler(req, res) {
           }
         }
         
+        console.log('Row ' + row + ' groups:', groups.map(g => ({ size: g.indices.length, indices: g.indices })))
+        
         // Sort groups by size (largest = majority)
         groups.sort((a, b) => b.indices.length - a.indices.length)
         const majorityGroup = groups[0]
@@ -169,6 +173,8 @@ export default async function handler(req, res) {
         
         // Check if it's a tie (all groups same size)
         const isTie = groups.length > 1 && groups.every(g => g.indices.length === groups[0].indices.length)
+        
+        console.log('Row ' + row + ' majority:', majorityGroup.indices, 'minority:', Array.from(minorityIndices), 'isTie:', isTie)
         
         // Assign probabilities:
         // High probability = suspect/likely wrong → RED
@@ -186,6 +192,7 @@ export default async function handler(req, res) {
             // MINORITY (1 file differs) = HIGH suspect probability (0.85) → RED "Wrong"
             prob = isMajority ? 0.25 : 0.85
           }
+          console.log('Row ' + row + ' file ' + fileIdx + ' prob:', prob, 'isMajority:', majorityGroup.indices.includes(fileIdx))
           suspects.push({ fileIndex: fileIdx, probability: prob })
         }
       }
