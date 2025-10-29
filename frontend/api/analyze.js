@@ -4,6 +4,7 @@ import pdfParse from 'pdf-parse'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { XMLParser } from 'fast-xml-parser'
+import { franc } from 'franc-min'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -28,10 +29,38 @@ export default async function handler(req, res) {
       names = Array.isArray(body?.names) ? body.names : []
       kinds = texts.map(() => 'text')
     }
-    if (texts.length < 2) return res.status(400).json({ error: 'Provide texts[2]' })
+    if (texts.length === 0) return res.status(400).json({ error: 'Provide at least one file' })
 
-    // Segment all inputs
-    const docs = texts.map(segment)
+    // Segment all inputs (or derive multilingual streams if single input)
+    let docs = texts.map(segment)
+    if (texts.length === 1) {
+      const one = texts[0]
+      // Try to split by languages within the single document
+      const segs = segment(one)
+      const langAtoItems = new Map()
+      const counts = new Map()
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i]
+        const code = franc(s || '') || 'und'
+        if (!langAtoItems.has(code)) langAtoItems.set(code, [])
+        langAtoItems.get(code).push({ idx: i, text: s })
+        counts.set(code, (counts.get(code) || 0) + 1)
+      }
+      // Pick top two languages; if only one, duplicate to compare identity
+      const top = [...counts.entries()].sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,2)
+      if (top.length === 0) top.push('und')
+      if (top.length === 1) top.push(top[0])
+      const langA = top[0]
+      const langB = top[1]
+      const arrA = (langAtoItems.get(langA) || []).map(x=>x.text)
+      const arrB = (langAtoItems.get(langB) || []).map(x=>x.text)
+      docs = [arrA, arrB]
+      // Update names/kinds to reflect derived streams
+      const baseName = names[0] || 'file'
+      names = [`${baseName} [${langA}]`, `${baseName} [${langB}]`]
+      kinds = ['derived', 'derived']
+      texts = [arrA.join('\n'), arrB.join('\n')]
+    }
 
     // Align doc0 to each other doc using local similarity + LLM verify
     const boxes = []
