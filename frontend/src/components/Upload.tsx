@@ -354,8 +354,8 @@ export default function Upload() {
                             size="small" 
                             color={status === 'review' ? 'success' : 'warning'}
                           />
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Row {n.index}
+                          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                            Paragraph {n.index + 1}
                           </Typography>
                         </Stack>
                         <Typography variant="body2" sx={{ mb: 1, color: '#333', fontWeight: 500 }}>{explanation}</Typography>
@@ -407,7 +407,7 @@ export default function Upload() {
                             return (
                               <Paper key={f.fileIndex} variant="outlined" sx={{ p: 0.5, backgroundColor: color + '20', borderColor: color }}>
                                 <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, mb: 0.5, color }}>{label}</Typography>
-                                <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b>: {displayText}</Typography>
+                                <Typography variant="caption"><b>{f.fileName || 'File ' + f.fileIndex}</b> (¶{f.row + 1}): {displayText}</Typography>
                               </Paper>
                             )
                           })}
