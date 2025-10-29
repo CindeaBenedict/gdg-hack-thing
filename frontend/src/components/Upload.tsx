@@ -27,13 +27,13 @@ export default function Upload() {
       const texts = await Promise.all(files.slice(0, 2).map(f => f.text()))
       const res = await api.post('/analyze', { texts })
       setResult(res.data)
-      const rows = (res.data?.pairs || []) as any[]
-      const mismatches = rows.filter(r => r.isMismatch)
-      const pretty = mismatches.map(r => {
-        const issues = r.ai?.issues || []
-        const msg = issues.length ? (issues[0]?.comment || 'Potential inconsistency') : `Similarity ${r.similarity}`
-        return { index: r.index, message: msg, source: r.source, target: r.target }
-      })
+      const boxes = (res.data?.boxes || []) as any[]
+      const pretty = boxes.map((b) => ({
+        index: b.row,
+        message: (b.issues?.[0]?.comment) || 'Potential inconsistency',
+        files: b.files,
+        suspects: b.suspects || []
+      }))
       setNotes(pretty)
       setLogs((l) => [...l, ...(res.data?.logs || [])])
     } catch (e: any) {
@@ -77,7 +77,15 @@ export default function Upload() {
               <Stack spacing={1}>
                 {notes.map(n => (
                   <Alert key={n.index} severity="warning">
-                    <strong>Pair {n.index}:</strong> {n.message}
+                    <strong>Row {n.index}:</strong> {n.message}
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      {(n.files || []).map((f: any) => (
+                        <div key={f.fileIndex}><b>File {f.fileIndex}</b> row {f.row}: {f.text}</div>
+                      ))}
+                      {(n.suspects || []).length > 0 && (
+                        <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => `file ${s.fileIndex}: ${Math.round((s.probability || 0)*100)/100}`).join(', ')}</div>
+                      )}
+                    </Stack>
                   </Alert>
                 ))}
               </Stack>

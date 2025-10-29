@@ -4,19 +4,59 @@ export default async function handler(req, res) {
     const body = await readJson(req)
     const texts = Array.isArray(body?.texts) ? body.texts : []
     if (texts.length < 2) return res.status(400).json({ error: 'Provide texts[2]' })
-    const [a, b] = texts
-    const sSegs = segment(a)
-    const tSegs = segment(b)
-    const pairs = align(sSegs, tSegs)
-    const rows = []
-    for (const [i, s, t] of pairs) {
-      const sim = similarity(s, t)
-      const verdict = await watsonxCheck(s, t)
-      const aiMismatch = verdict?.issues?.length > 0
-      rows.push({ index: i, source: s, target: t, similarity: sim, isMismatch: aiMismatch || sim < 0.6, ai: verdict })
+
+    // Segment all inputs
+    const docs = texts.map(segment)
+
+    // Align doc0 to each other doc using local similarity + LLM verify
+    const boxes = []
+    const pairsAll = []
+    for (let d = 1; d < docs.length; d++) {
+      const ref = docs[0]
+      const oth = docs[d]
+      const mapping = greedyAlign(ref, oth)
+      for (const [i, j] of mapping) {
+        const s = ref[i] || ''
+        const t = oth[j] || ''
+        const baseSim = similarity(s, t)
+        const verdict = await watsonxCheck(s, t)
+        const aiMismatch = verdict?.status && verdict.status !== 'MATCH'
+        pairsAll.push({ index: i, docA: 0, rowA: i, textA: s, docB: d, rowB: j, textB: t, similarity: baseSim, ai: verdict, isMismatch: aiMismatch || baseSim < 0.6 })
+      }
     }
-    const summary = summarize(rows)
-    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: rows, logs: [] })
+
+    // Build explanation boxes per base row i
+    const byRow = new Map()
+    for (const p of pairsAll) {
+      const k = p.index
+      if (!byRow.has(k)) byRow.set(k, [])
+      byRow.get(k).push(p)
+    }
+    for (const [row, items] of byRow) {
+      const files = []
+      const suspects = []
+      let anyMismatch = false
+      // file 0 always present
+      files.push({ fileIndex: 0, row, text: items[0]?.textA || '' })
+      for (const it of items) {
+        files.push({ fileIndex: it.docB, row: it.rowB, text: it.textB })
+        if (it.isMismatch) anyMismatch = true
+      }
+      if (anyMismatch) {
+        for (const it of items) {
+          const conf = Number(it.ai?.confidence || 0.6)
+          const blame = it.ai?.status === 'MISMATCH' || it.isMismatch ? conf : 0.0
+          suspects.push({ fileIndex: it.docB, probability: Math.round(Math.min(0.95, Math.max(0.05, blame)) * 100) / 100 })
+        }
+      }
+      const issue = items.find(it => (it.ai?.issues || []).length)
+      boxes.push({ row, files, issues: issue?.ai?.issues || [], suspects })
+    }
+
+    // Summary from mismatches
+    const rowsFlat = pairsAll.map(p => ({ similarity: p.similarity, isMismatch: p.isMismatch }))
+    const summary = summarize(rowsFlat)
+    return res.status(200).json({ projectId: Date.now().toString(36), createdAt: Math.floor(Date.now()/1000), summary, pairs: pairsAll, boxes, logs: [] })
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'server error' })
   }
@@ -49,6 +89,23 @@ function align(a, b) {
   const m = Math.max(a.length, b.length)
   const out = []
   for (let i = 0; i < m; i++) out.push([i, a[i] || '', b[i] || ''])
+  return out
+}
+
+function greedyAlign(a, b) {
+  // For each i in a, pick j in [i-2,i+2] maximizing lexical similarity
+  const out = []
+  for (let i = 0; i < a.length; i++) {
+    let bestJ = Math.min(i, b.length - 1)
+    let best = -1
+    for (let dj = -2; dj <= 2; dj++) {
+      const j = i + dj
+      if (j < 0 || j >= b.length) continue
+      const s = similarity(a[i] || '', b[j] || '')
+      if (s > best) { best = s; bestJ = j }
+    }
+    out.push([i, Math.max(0, Math.min(bestJ, b.length - 1))])
+  }
   return out
 }
 
