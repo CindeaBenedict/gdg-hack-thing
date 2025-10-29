@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 from typing import Any, Dict, List
@@ -10,6 +11,8 @@ from backend.clausematch import align, compare, extract, report, segment
 
 
 router = APIRouter(tags=["analyze"])
+INSECURE_MODE = os.getenv("FIREBASE_ALLOW_INSECURE", "").lower() in {"1", "true", "yes"}
+_INMEM_REPORTS: Dict[str, Dict[str, Any]] = {}
 
 
 @router.post("/analyze")
@@ -42,43 +45,70 @@ async def analyze_endpoint(
         "pairs": comparisons,
     }
 
-    db = get_db()
-    db.collection("reports").document(project_id).set(
-        {
+    if INSECURE_MODE:
+        _INMEM_REPORTS[project_id] = {
             "userId": result["userId"],
             "createdAt": created_at,
             "filenames": result["filenames"],
             "summary": summary,
+            "pairs": comparisons,
         }
-    )
+    else:
+        db = get_db()
+        db.collection("reports").document(project_id).set(
+            {
+                "userId": result["userId"],
+                "createdAt": created_at,
+                "filenames": result["filenames"],
+                "summary": summary,
+            }
+        )
 
     return result
 
 
 @router.get("/results/{project_id}")
 def get_results(project_id: str, user: Dict[str, Any] = Depends(verify_token)):
-    db = get_db()
-    doc = db.collection("reports").document(project_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=404, detail="Report not found")
-    data = doc.to_dict()
-    if data.get("userId") != user.get("uid"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return {"projectId": project_id, **data}
+    if INSECURE_MODE:
+        data = _INMEM_REPORTS.get(project_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return {"projectId": project_id, **data}
+    else:
+        db = get_db()
+        doc = db.collection("reports").document(project_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Report not found")
+        data = doc.to_dict()
+        if data.get("userId") != user.get("uid"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return {"projectId": project_id, **data}
 
 
 @router.get("/reports")
 def list_reports(user: Dict[str, Any] = Depends(verify_token)):
-    db = get_db()
-    query = (
-        db.collection("reports")
-        .where("userId", "==", user.get("uid"))
-        .order_by("createdAt", direction=fb_firestore.Query.DESCENDING)
-        .limit(25)
-    )
-    items: List[Dict[str, Any]] = []
-    for doc in query.stream():
-        items.append({"projectId": doc.id, **doc.to_dict()})
-    return {"items": items}
+    if INSECURE_MODE:
+        # Return latest 25 by createdAt
+        items = sorted(
+            (
+                {"projectId": pid, **data}
+                for pid, data in _INMEM_REPORTS.items()
+            ),
+            key=lambda x: x.get("createdAt", 0),
+            reverse=True,
+        )[:25]
+        return {"items": items}
+    else:
+        db = get_db()
+        query = (
+            db.collection("reports")
+            .where("userId", "==", user.get("uid"))
+            .order_by("createdAt", direction=fb_firestore.Query.DESCENDING)
+            .limit(25)
+        )
+        items: List[Dict[str, Any]] = []
+        for doc in query.stream():
+            items.append({"projectId": doc.id, **doc.to_dict()})
+        return {"items": items}
 
 

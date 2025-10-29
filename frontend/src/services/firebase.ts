@@ -22,23 +22,35 @@ const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 
+const AUTH_DISABLED = (import.meta as any).env.VITE_DISABLE_AUTH === '1'
+export const authDisabled = AUTH_DISABLED
+
 export async function signInWithGoogle() {
+  if (AUTH_DISABLED) return
   await signInWithPopup(auth, googleProvider)
 }
 
 export async function emailPasswordSignIn(email: string, password: string) {
+  if (AUTH_DISABLED) return
   return signInWithEmailAndPassword(auth, email, password)
 }
 
 export async function emailPasswordSignUp(email: string, password: string) {
+  if (AUTH_DISABLED) return
   return createUserWithEmailAndPassword(auth, email, password)
 }
 
 export async function logout() {
+  if (AUTH_DISABLED) return
   return signOut(auth)
 }
 
 export function onAuth(cb: (u: any) => void) {
+  if (AUTH_DISABLED) {
+    const user = { uid: 'dev-user', email: 'dev@local' }
+    cb(user)
+    return () => {}
+  }
   return onAuthStateChanged(auth, cb)
 }
 
