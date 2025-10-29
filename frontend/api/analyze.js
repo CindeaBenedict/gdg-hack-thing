@@ -136,21 +136,41 @@ export default async function handler(req, res) {
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
-        // Add suspect for file 0 (base file)
-        const file0Mismatch = items.some(it => it.isMismatch)
-        if (file0Mismatch) {
-          // Compute average blame for file 0 across all comparisons
-          const avgBlame = items.reduce((sum, it) => {
-            const conf = Number(it.ai?.confidence || 0.6)
-            return sum + (it.ai?.status === 'MISMATCH' || it.isMismatch ? conf : 0.0)
-          }, 0) / Math.max(1, items.length)
-          suspects.push({ fileIndex: 0, probability: Math.round(Math.min(0.95, Math.max(0.05, avgBlame)) * 100) / 100 })
+        // Collect all file texts for this row to find majority
+        const allTexts = [items[0]?.textA || '', ...items.map(it => it.textB || '')]
+        const allIndices = [0, ...items.map(it => it.docB)]
+        
+        // Count occurrences of similar texts (group by similarity > 0.7)
+        const groups = []
+        for (let i = 0; i < allTexts.length; i++) {
+          let found = false
+          for (const g of groups) {
+            if (similarity(allTexts[i], g.texts[0]) > 0.7) {
+              g.indices.push(allIndices[i])
+              g.texts.push(allTexts[i])
+              found = true
+              break
+            }
+          }
+          if (!found) {
+            groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
+          }
         }
-        // Add suspects for other files
-        for (const it of items) {
-          const conf = Number(it.ai?.confidence || 0.6)
-          const blame = it.ai?.status === 'MISMATCH' || it.isMismatch ? conf : 0.0
-          suspects.push({ fileIndex: it.docB, probability: Math.round(Math.min(0.95, Math.max(0.05, blame)) * 100) / 100 })
+        
+        // Sort groups by size (largest = majority)
+        groups.sort((a, b) => b.indices.length - a.indices.length)
+        const majorityGroup = groups[0]
+        const minorityIndices = new Set()
+        for (let i = 1; i < groups.length; i++) {
+          for (const idx of groups[i].indices) minorityIndices.add(idx)
+        }
+        
+        // Assign probabilities: minority = high (0.8-0.95), majority = low (0.1-0.3)
+        for (let i = 0; i < allIndices.length; i++) {
+          const fileIdx = allIndices[i]
+          const isMinority = minorityIndices.has(fileIdx)
+          const prob = isMinority ? 0.85 : 0.25
+          suspects.push({ fileIndex: fileIdx, probability: prob })
         }
       }
       const issue = items.find(it => (it.ai?.issues || []).length)
