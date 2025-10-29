@@ -96,7 +96,7 @@ export default async function handler(req, res) {
         
         // Only call AI if there's factual data to check
         let verdict
-        const useRag = process.env.ENABLE_RAG !== '0' // Enabled by default for speed
+        const useRag = false // DISABLED - causes cache errors on Vercel
         if (useRag) {
           try {
             const cached = await Promise.race([
@@ -132,11 +132,8 @@ export default async function handler(req, res) {
       }
     }
     
-    if (process.env.ENABLE_RAG !== '0') {
-      logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses (' + Math.round((cacheHits/(cacheHits+cacheMisses))*100) + '% hit rate)')
-      const ragStats = getStats()
-      logs.push('RAG store: ' + ragStats.totalCached + ' entries cached (reduces watsonx API load)')
-    }
+    // RAG disabled for Vercel compatibility
+    logs.push('Analysis complete - ' + cacheMisses + ' watsonx AI checks performed')
 
     // Build explanation boxes per base row i
     const byRow = new Map()
@@ -156,55 +153,27 @@ export default async function handler(req, res) {
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
-        // Collect all file texts for this row to find majority using SEMANTIC similarity
+        // Collect all file texts for this row to find majority using LEXICAL similarity
         const allTexts = [items[0]?.textA || '', ...items.map(it => it.textB || '')]
         const allIndices = [0, ...items.map(it => it.docB)]
         
         console.log('Row ' + row + ' texts:', allTexts.map((t, i) => allIndices[i] + ':' + t.substring(0, 50)))
         
-        // Use semantic embeddings to group similar texts across languages
+        // Group by lexical similarity (fast, works on Vercel)
         const groups = []
-        let embeddings = []
-        
-        try {
-          // Compute embeddings for all texts
-          embeddings = await Promise.all(allTexts.map(t => embed(t)))
-          
-          // Group by ULTRA HIGH semantic similarity > 0.97 (ACCURACY IS KING - almost perfect match only)
-          for (let i = 0; i < allTexts.length; i++) {
-            let found = false
-            for (const g of groups) {
-              const sim = cosineSimilarity(embeddings[i], g.embeddings[0])
-              console.log('  Comparing file ' + allIndices[i] + ' with group[0] file ' + g.indices[0] + ': sim=' + sim.toFixed(4))
-              if (sim > 0.97) {
-                g.indices.push(allIndices[i])
-                g.texts.push(allTexts[i])
-                g.embeddings.push(embeddings[i])
-                found = true
-                console.log('    ✓ GROUPED (sim=' + sim.toFixed(4) + ' > 0.97) - virtually identical meaning')
-                break
-              }
-            }
-            if (!found) {
-              groups.push({ indices: [allIndices[i]], texts: [allTexts[i]], embeddings: [embeddings[i]] })
-              console.log('  File ' + allIndices[i] + ' → SEPARATE GROUP (no match > 0.97)')
+        for (let i = 0; i < allTexts.length; i++) {
+          let found = false
+          for (const g of groups) {
+            const sim = similarity(allTexts[i], g.texts[0])
+            if (sim > 0.6) {
+              g.indices.push(allIndices[i])
+              g.texts.push(allTexts[i])
+              found = true
+              break
             }
           }
-        } catch (e) {
-          // Fallback to lexical if embedding fails
-          for (let i = 0; i < allTexts.length; i++) {
-            let found = false
-            for (const g of groups) {
-              if (similarity(allTexts[i], g.texts[0]) > 0.7) {
-                g.indices.push(allIndices[i])
-                g.texts.push(allTexts[i])
-                found = true
-                break
-              }
-            }
-            if (!found) {
-              groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
-            }
+          if (!found) {
+            groups.push({ indices: [allIndices[i]], texts: [allTexts[i]] })
           }
         }
         
@@ -378,7 +347,7 @@ function align(a, b) {
 async function semanticAlign(a, b) {
   // Semantic cross-language alignment using embeddings
   // For each segment in a, find best match in b by cosine similarity
-  const useSemanticAlign = process.env.ENABLE_SEMANTIC_ALIGN !== '0'
+  const useSemanticAlign = false // DISABLED for Vercel - embeddings cause cache errors
   
   if (!useSemanticAlign) {
     // Fallback to greedy alignment
