@@ -3,6 +3,7 @@ export default async function handler(req, res) {
   try {
     const body = await readJson(req)
     const texts = Array.isArray(body?.texts) ? body.texts : []
+    const names = Array.isArray(body?.names) ? body.names : []
     if (texts.length < 2) return res.status(400).json({ error: 'Provide texts[2]' })
 
     // Segment all inputs
@@ -37,9 +38,9 @@ export default async function handler(req, res) {
       const suspects = []
       let anyMismatch = false
       // file 0 always present
-      files.push({ fileIndex: 0, row, text: items[0]?.textA || '' })
+      files.push({ fileIndex: 0, fileName: names[0] || `file0`, row, text: items[0]?.textA || '' })
       for (const it of items) {
-        files.push({ fileIndex: it.docB, row: it.rowB, text: it.textB })
+        files.push({ fileIndex: it.docB, fileName: names[it.docB] || `file${it.docB}`, row: it.rowB, text: it.textB })
         if (it.isMismatch) anyMismatch = true
       }
       if (anyMismatch) {
@@ -50,7 +51,13 @@ export default async function handler(req, res) {
         }
       }
       const issue = items.find(it => (it.ai?.issues || []).length)
-      boxes.push({ row, files, issues: issue?.ai?.issues || [], suspects })
+      // Normalize issues to generic structure if present
+      const issues = Array.isArray(issue?.ai?.issues) ? issue.ai.issues.map((x) => ({
+        type: x.type || 'entity',
+        values: x.values || {},
+        comment: x.comment || 'Possible inconsistency'
+      })) : []
+      boxes.push({ row, files, issues, suspects })
     }
 
     // Summary from mismatches

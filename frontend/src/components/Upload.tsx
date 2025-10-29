@@ -24,8 +24,10 @@ export default function Upload() {
     setNotes([])
     setLogs((l) => [...l, `Starting analysis for ${files.length} files`])
     try {
-      const texts = await Promise.all(files.slice(0, 2).map(f => f.text()))
-      const res = await api.post('/analyze', { texts })
+      const sel = files.slice(0, 2)
+      const texts = await Promise.all(sel.map(f => f.text()))
+      const names = sel.map(f => f.name)
+      const res = await api.post('/analyze', { texts, names })
       setResult(res.data)
       const boxes = (res.data?.boxes || []) as any[]
       const pretty = boxes.map((b) => ({
@@ -80,10 +82,22 @@ export default function Upload() {
                     <strong>Row {n.index}:</strong> {n.message}
                     <Stack spacing={0.5} sx={{ mt: 1 }}>
                       {(n.files || []).map((f: any) => (
-                        <div key={f.fileIndex}><b>File {f.fileIndex}</b> row {f.row}: {f.text}</div>
+                        <div key={f.fileIndex}><b>{f.fileName || `File ${f.fileIndex}`}</b> row {f.row}: {f.text}</div>
+                      ))}
+                      {(n.issues || []).map((iss: any, ix: number) => (
+                        <div key={ix}>
+                          <b>Issue:</b> {iss.type} — {iss.comment}
+                          {iss.values && (
+                            <div>
+                              {Object.keys(iss.values).map((lang) => (
+                                <div key={lang}>{lang}: {iss.values[lang]}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ))}
                       {(n.suspects || []).length > 0 && (
-                        <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => `file ${s.fileIndex}: ${Math.round((s.probability || 0)*100)/100}`).join(', ')}</div>
+                        <div><b>Suspect probabilities:</b> {(n.suspects || []).map((s: any) => `${s.fileIndex}: ${Math.round((s.probability || 0)*100)}%`).join(', ')}</div>
                       )}
                     </Stack>
                   </Alert>
