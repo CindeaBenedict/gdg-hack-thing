@@ -84,17 +84,15 @@ export default function Upload() {
     }
   }
 
-  // Mirror server segmentation for alignment/highlight
+  // Mirror server PARAGRAPH segmentation for alignment/highlight
   const segmentText = (text: string): string[] => {
     if (!text) return []
-    const out: string[] = []
-    for (const line of text.split('\n')) {
-      for (const p of line.replace(/\?|!/g, '.').split('.')) {
-        const s = p.trim()
-        if (s) out.push(s)
-      }
-    }
-    return out
+    // Split on double newlines (paragraph breaks) - matches backend
+    const paragraphs = text.split('\n\n')
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+    console.log('Frontend segmented into ' + paragraphs.length + ' paragraphs')
+    return paragraphs
   }
 
   // Build segments and refs when result comes in
@@ -290,8 +288,8 @@ export default function Upload() {
                           />
                         )
                       ) : (
-                        <Paper variant="outlined" sx={{ p: 1, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 12 }}>
-                          {rows.map((line, ri) => (
+                        <Paper variant="outlined" sx={{ p: 1, maxHeight: 400, overflow: 'auto', fontSize: 13, lineHeight: 1.7 }}>
+                          {rows.map((para, ri) => (
                             <div
                               key={ri}
                               ref={(el) => {
@@ -300,12 +298,14 @@ export default function Upload() {
                               }}
                               style={{
                                 backgroundColor: highlightMap[i] === ri ? '#fff59d' : 'transparent',
-                                padding: '2px 4px',
+                                padding: '8px',
+                                marginBottom: '8px',
+                                borderLeft: highlightMap[i] === ri ? '3px solid #fbc02d' : '3px solid transparent',
                                 borderRadius: 4
                               }}
                             >
-                              <span style={{ color: '#888' }}>{ri.toString().padStart(3, '0')}: </span>
-                              {line}
+                              <div style={{ color: '#888', fontSize: 11, marginBottom: 4 }}>¶ {ri + 1}</div>
+                              <div>{para}</div>
                             </div>
                           ))}
                         </Paper>
