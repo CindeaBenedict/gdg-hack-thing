@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { XMLParser } from 'fast-xml-parser'
 import { franc } from 'franc-min'
+import { searchSimilar, storePair, getStats } from './rag.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -66,9 +67,11 @@ export default async function handler(req, res) {
       htmls = texts.map((t) => '<pre>' + escapeHtml(t) + '</pre>')
     }
 
-    // Align doc0 to each other doc using local similarity + LLM verify
+    // Align doc0 to each other doc using local similarity + LLM verify (with RAG cache)
     const boxes = []
     const pairsAll = []
+    let cacheHits = 0
+    let cacheMisses = 0
     for (let d = 1; d < docs.length; d++) {
       const ref = docs[0]
       const oth = docs[d]
@@ -77,11 +80,28 @@ export default async function handler(req, res) {
         const s = ref[i] || ''
         const t = oth[j] || ''
         const baseSim = similarity(s, t)
-        const verdict = await watsonxCheck(s, t)
+        
+        // Try RAG cache first
+        const cached = await searchSimilar(s, t, 0.95)
+        let verdict
+        if (cached.hit) {
+          verdict = cached.cached
+          cacheHits++
+        } else {
+          verdict = await watsonxCheck(s, t)
+          cacheMisses++
+          // Store in RAG for future
+          await storePair(s, t, verdict)
+        }
+        
         const aiMismatch = verdict?.status && verdict.status !== 'MATCH'
         pairsAll.push({ index: i, docA: 0, rowA: i, textA: s, docB: d, rowB: j, textB: t, similarity: baseSim, ai: verdict, isMismatch: aiMismatch || baseSim < 0.6 })
       }
     }
+    
+    logs.push('RAG cache: ' + cacheHits + ' hits, ' + cacheMisses + ' misses')
+    const ragStats = getStats()
+    logs.push('RAG store: ' + ragStats.totalCached + ' entries cached')
 
     // Build explanation boxes per base row i
     const byRow = new Map()
