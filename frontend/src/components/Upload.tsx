@@ -25,6 +25,19 @@ export default function Upload() {
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
 
+  const onClear = () => {
+    setFiles([])
+    setResult(null)
+    setNotes([])
+    setLogs([])
+    setError('')
+    setSegments([])
+    setHighlightMap([])
+    setEditable([])
+    setEditedHtmls([])
+    setEditedTexts([])
+  }
+
   const onAnalyze = async () => {
     if (files.length < 1) {
       setError('Select at least one file')
@@ -217,7 +230,12 @@ export default function Upload() {
               <input type="file" hidden multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} />
             </Button>
             <Button variant="contained" onClick={onAnalyze} disabled={loading}>Run</Button>
-            {files.length > 0 && <Chip label={files.length + ' selected'} />}
+            {files.length > 0 && (
+              <>
+                <Chip label={files.length + ' selected'} />
+                <Button variant="outlined" color="error" onClick={onClear} disabled={loading}>Clear</Button>
+              </>
+            )}
           </Stack>
 
           {result && (
